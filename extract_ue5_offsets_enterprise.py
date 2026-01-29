@@ -371,36 +371,58 @@ class EnterpriseOffsetScanner:
         """Phase 2: Scan for GWorld and GName base addresses"""
         self.log("Phase 2: Scanning for base addresses (GWorld, GName)...", "INFO")
 
-        txt_files = [f for f in self.all_files if f.suffix.lower() == '.txt']
+        # Find ALL text files - be very inclusive
+        txt_files = []
+        for ext in ['.txt', '.TXT', '.log', '.dump']:
+            txt_files.extend([f for f in self.all_files if f.suffix.lower() == ext.lower()])
 
-        print(f"  Scanning {len(txt_files)} text files...")
+        # Remove duplicates
+        txt_files = list(set(txt_files))
 
-        # Show which files we're scanning
+        print(f"  Scanning {len(txt_files)} text/dump files...\n")
+
+        # Show EVERY file we're scanning
         for txt_file in txt_files:
-            print(f"    • {txt_file.name} ({txt_file.stat().st_size / 1024:.1f} KB)")
+            size_kb = txt_file.stat().st_size / 1024
+            print(f"    • {txt_file.name:40s} ({size_kb:>8.1f} KB)")
+
+        if len(txt_files) == 0:
+            print(f"{Color.RED}  No text files found!{Color.END}")
+            return
 
         found_count = 0
 
         for txt_file in txt_files:
+            print(f"\n  {Color.CYAN}Scanning: {txt_file.name}{Color.END}")
+
             try:
                 with open(txt_file, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
+
+                file_size = len(content)
+                print(f"    File size: {file_size:,} characters")
 
                 # Search for each base address
                 for base_name, patterns in self.base_address_patterns.items():
                     if base_name in self.base_addresses:
                         continue  # Already found
 
+                    # First check if the name even appears in the file
+                    if base_name in content or base_name.lower() in content.lower():
+                        print(f"    {Color.YELLOW}Found '{base_name}' text in file!{Color.END}")
+
                     for pattern_idx, pattern in enumerate(patterns):
                         matches = list(re.finditer(pattern, content, re.IGNORECASE | re.MULTILINE))
 
-                        if self.verbose and matches:
-                            print(f"    {Color.DIM}  Pattern {pattern_idx+1} for {base_name}: {len(matches)} matches in {txt_file.name}{Color.END}")
+                        if matches:
+                            print(f"    {Color.GREEN}Pattern {pattern_idx+1}: {len(matches)} matches{Color.END}")
 
-                        for match in matches:
+                        for match_idx, match in enumerate(matches, 1):
                             try:
                                 address_hex = match.group(1)
                                 address = int(address_hex, 16)
+
+                                print(f"      Match {match_idx}: 0x{address:X}")
 
                                 # Validate address (reasonable range for game memory addresses)
                                 if 0x100000 < address < 0xFFFFFFFFFFFF:
@@ -424,86 +446,135 @@ class EnterpriseOffsetScanner:
                                     )
 
                                     found_count += 1
-                                    self.log(f"Found {base_name} = 0x{address:X} in {txt_file.name}", "SUCCESS")
+                                    self.log(f"✓ Found {base_name} = 0x{address:X} in {txt_file.name}", "SUCCESS")
+                                    print(f"      {Color.GREEN}✓ ACCEPTED{Color.END}")
                                     break
+                                else:
+                                    print(f"      {Color.DIM}Rejected: Out of range{Color.END}")
                             except (ValueError, IndexError) as e:
-                                if self.verbose:
-                                    print(f"    {Color.DIM}  Parse error: {e}{Color.END}")
+                                print(f"      {Color.DIM}Parse error: {e}{Color.END}")
                                 continue
 
                         if base_name in self.base_addresses:
                             break
 
             except Exception as e:
-                self.log(f"Error reading {txt_file.name}: {e}", "WARNING")
+                self.log(f"Error reading {txt_file.name}: {e}", "ERROR")
+                import traceback
+                traceback.print_exc()
 
         self.stats.base_addresses_found = len(self.base_addresses)
 
-        # If still not found, do a more aggressive search
+        # If still not found, do ULTRA aggressive search
         if len(self.base_addresses) < 2:
-            print(f"\n  {Color.YELLOW}Running aggressive fallback search...{Color.END}")
+            print(f"\n  {Color.YELLOW}{'='*70}{Color.END}")
+            print(f"  {Color.YELLOW}Running ULTRA AGGRESSIVE fallback search...{Color.END}")
+            print(f"  {Color.YELLOW}{'='*70}{Color.END}\n")
+
             for txt_file in txt_files:
+                print(f"  {Color.CYAN}Deep scanning: {txt_file.name}{Color.END}")
                 try:
                     with open(txt_file, 'r', encoding='utf-8', errors='ignore') as f:
                         lines = f.readlines()
 
-                    for line_num, line in enumerate(lines[:2000], 1):  # First 2000 lines
-                        # Look for hex addresses
-                        if 'GWorld' not in self.base_addresses and 'GWorld' in line:
-                            hex_matches = re.findall(r'(?:0x)?([0-9A-Fa-f]{7,16})', line)
-                            for hex_val in hex_matches:
-                                try:
-                                    addr = int(hex_val, 16)
-                                    if 0x100000 < addr < 0xFFFFFFFFFFFF:
-                                        self.base_addresses["GWorld"] = BaseAddressInfo(
-                                            name="GWorld",
-                                            address=addr,
-                                            hex_address=f"0x{addr:X}",
-                                            file_path=str(txt_file),
-                                            file_name=txt_file.name,
-                                            context=line.strip(),
-                                            pattern_used="fallback",
-                                            confidence=0.8
-                                        )
-                                        self.log(f"Found GWorld = 0x{addr:X} (fallback) in {txt_file.name}:{line_num}", "SUCCESS")
-                                        break
-                                except:
-                                    pass
+                    print(f"    Lines to scan: {len(lines)}")
 
-                        if 'GName' not in self.base_addresses and ('GName' in line or 'FNamePool' in line):
-                            hex_matches = re.findall(r'(?:0x)?([0-9A-Fa-f]{7,16})', line)
-                            for hex_val in hex_matches:
-                                try:
-                                    addr = int(hex_val, 16)
-                                    if 0x100000 < addr < 0xFFFFFFFFFFFF:
-                                        self.base_addresses["GName"] = BaseAddressInfo(
-                                            name="GName",
-                                            address=addr,
-                                            hex_address=f"0x{addr:X}",
-                                            file_path=str(txt_file),
-                                            file_name=txt_file.name,
-                                            context=line.strip(),
-                                            pattern_used="fallback",
-                                            confidence=0.8
-                                        )
-                                        self.log(f"Found GName = 0x{addr:X} (fallback) in {txt_file.name}:{line_num}", "SUCCESS")
+                    for line_num, line in enumerate(lines, 1):
+                        # Look for hex addresses on ANY line containing GWorld or GName
+                        if 'GWorld' not in self.base_addresses:
+                            if 'GWorld' in line or 'gworld' in line.lower() or 'world' in line.lower():
+                                # Extract ALL hex values from this line
+                                hex_patterns = [
+                                    r'(?:0x)([0-9A-Fa-f]{7,16})',  # With 0x prefix
+                                    r'(?:^|\s|:)([0-9A-Fa-f]{7,16})(?:\s|$)',  # Without prefix
+                                ]
+
+                                for hex_pattern in hex_patterns:
+                                    hex_matches = re.findall(hex_pattern, line)
+                                    for hex_val in hex_matches:
+                                        try:
+                                            addr = int(hex_val, 16)
+                                            if 0x100000 < addr < 0xFFFFFFFFFFFF:
+                                                self.base_addresses["GWorld"] = BaseAddressInfo(
+                                                    name="GWorld",
+                                                    address=addr,
+                                                    hex_address=f"0x{addr:X}",
+                                                    file_path=str(txt_file),
+                                                    file_name=txt_file.name,
+                                                    context=line.strip(),
+                                                    pattern_used="ultra-fallback",
+                                                    confidence=0.7
+                                                )
+                                                print(f"    {Color.GREEN}✓ Found GWorld = 0x{addr:X} on line {line_num}{Color.END}")
+                                                print(f"      Line: {line.strip()[:80]}")
+                                                break
+                                        except:
+                                            pass
+                                    if 'GWorld' in self.base_addresses:
                                         break
-                                except:
-                                    pass
-                except:
-                    pass
+                                if 'GWorld' in self.base_addresses:
+                                    break
+
+                        if 'GName' not in self.base_addresses:
+                            if any(keyword in line.lower() for keyword in ['gname', 'fnamepool', 'namepool']):
+                                # Extract ALL hex values from this line
+                                hex_patterns = [
+                                    r'(?:0x)([0-9A-Fa-f]{7,16})',
+                                    r'(?:^|\s|:)([0-9A-Fa-f]{7,16})(?:\s|$)',
+                                ]
+
+                                for hex_pattern in hex_patterns:
+                                    hex_matches = re.findall(hex_pattern, line)
+                                    for hex_val in hex_matches:
+                                        try:
+                                            addr = int(hex_val, 16)
+                                            if 0x100000 < addr < 0xFFFFFFFFFFFF:
+                                                self.base_addresses["GName"] = BaseAddressInfo(
+                                                    name="GName",
+                                                    address=addr,
+                                                    hex_address=f"0x{addr:X}",
+                                                    file_path=str(txt_file),
+                                                    file_name=txt_file.name,
+                                                    context=line.strip(),
+                                                    pattern_used="ultra-fallback",
+                                                    confidence=0.7
+                                                )
+                                                print(f"    {Color.GREEN}✓ Found GName = 0x{addr:X} on line {line_num}{Color.END}")
+                                                print(f"      Line: {line.strip()[:80]}")
+                                                break
+                                        except:
+                                            pass
+                                    if 'GName' in self.base_addresses:
+                                        break
+                                if 'GName' in self.base_addresses:
+                                    break
+
+                        # Stop if we found both
+                        if len(self.base_addresses) >= 2:
+                            break
+
+                except Exception as e:
+                    print(f"    {Color.RED}Error: {e}{Color.END}")
+
+                # Stop scanning files if we found both
+                if len(self.base_addresses) >= 2:
+                    break
 
             self.stats.base_addresses_found = len(self.base_addresses)
 
-        print(f"\n{Color.SUCCESS}✓ Base Address Scan Complete{Color.END}")
-        print(f"  Found: {len(self.base_addresses)}/2 base addresses")
+        print(f"\n{Color.SUCCESS}{'='*70}{Color.END}")
+        print(f"{Color.SUCCESS}✓ Base Address Scan Complete{Color.END}")
+        print(f"{Color.SUCCESS}{'='*70}{Color.END}")
+        print(f"  Found: {len(self.base_addresses)}/2 base addresses\n")
 
         for name, info in self.base_addresses.items():
-            print(f"  {Color.GREEN}✓{Color.END} {name}: {info.hex_address} (confidence: {info.confidence*100:.0f}%)")
+            print(f"  {Color.GREEN}✓{Color.END} {name:20s} = {info.hex_address:16s} (confidence: {info.confidence*100:.0f}%)")
+            print(f"    {Color.DIM}File: {info.file_name}{Color.END}")
+            print(f"    {Color.DIM}Context: {info.context[:60]}...{Color.END}\n")
 
         for name in ["GWorld", "GName"]:
             if name not in self.base_addresses:
-                print(f"  {Color.RED}✗{Color.END} {name}: Not found")
+                print(f"  {Color.RED}✗{Color.END} {name:20s} = NOT FOUND\n")
 
     def extract_class_members(self, file_path: Path, class_name: str) -> List[Tuple[str, str, int, str, int]]:
         """
