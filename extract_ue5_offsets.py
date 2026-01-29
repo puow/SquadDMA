@@ -83,19 +83,24 @@ class OffsetExtractor:
         }
 
     def find_sdk_files(self):
-        """Find all relevant SDK header files"""
-        print(f"\n{Color.CYAN}Scanning SDK directory: {self.sdk_path}{Color.END}")
+        """Find all relevant SDK header files recursively"""
+        print(f"\n{Color.CYAN}Scanning directory recursively: {self.sdk_path}{Color.END}")
 
         if not self.sdk_path.exists():
-            print(f"{Color.RED}ERROR: SDK path does not exist: {self.sdk_path}{Color.END}")
+            print(f"{Color.RED}ERROR: Path does not exist: {self.sdk_path}{Color.END}")
             return False
 
-        # Look for C++ header files
+        # Look for C++ header files recursively throughout entire directory tree
         patterns = ['*.hpp', '*.h']
         for pattern in patterns:
             self.sdk_files.extend(self.sdk_path.rglob(pattern))
 
-        print(f"{Color.GREEN}Found {len(self.sdk_files)} SDK files{Color.END}")
+        print(f"{Color.GREEN}Found {len(self.sdk_files)} header files{Color.END}")
+
+        # Show directory structure
+        unique_dirs = set(f.parent for f in self.sdk_files)
+        print(f"{Color.CYAN}Scanning {len(unique_dirs)} subdirectories{Color.END}")
+
         return len(self.sdk_files) > 0
 
     def extract_class_members(self, file_path: Path, class_name: str) -> List[Tuple[str, str, int, str]]:
@@ -183,20 +188,18 @@ class OffsetExtractor:
         Try to find GWorld and GName base addresses.
         These are usually in GObjects-Dump.txt or similar files.
         """
-        print(f"\n{Color.CYAN}Searching for base addresses...{Color.END}")
+        print(f"\n{Color.CYAN}Searching for base addresses (recursively in all .txt files)...{Color.END}")
 
-        # Look for common dump files
-        dump_files = [
-            'GObjects-Dump.txt',
-            'GNames-Dump.txt',
-            'GObjects-WithProperties.txt',
-            'BasicTypes.txt',
-        ]
+        # Search for all .txt files recursively
+        all_txt_files = list(self.sdk_path.rglob('*.txt'))
 
-        parent_dir = self.sdk_path.parent
+        if not all_txt_files:
+            print(f"{Color.YELLOW}No .txt dump files found{Color.END}")
+            return
 
-        for dump_file in dump_files:
-            dump_path = parent_dir / dump_file
+        print(f"{Color.CYAN}Found {len(all_txt_files)} text files to search{Color.END}")
+
+        for dump_path in all_txt_files:
             if dump_path.exists():
                 try:
                     with open(dump_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -388,10 +391,11 @@ def main():
     print(f"{Color.END}")
 
     if len(sys.argv) < 2:
-        print(f"{Color.YELLOW}Usage: python3 {sys.argv[0]} <path_to_dumper7_sdk_folder>{Color.END}")
+        print(f"{Color.YELLOW}Usage: python3 {sys.argv[0]} <path_to_dumper7_folder>{Color.END}")
         print(f"\nExample:")
-        print(f"  python3 {sys.argv[0]} './5.5.4-546763+__Squad_v10.2-SquadGame/SDK'")
-        print(f"  python3 {sys.argv[0]} './Dumper7_Output/SDK'")
+        print(f"  python3 {sys.argv[0]} './5.5.4-546763+__Squad_v10.2-SquadGame'")
+        print(f"  python3 {sys.argv[0]} 'C:\\Users\\Admin\\Desktop\\5.5.4-546763+__Squad_v10.2-SquadGame'")
+        print(f"\nNote: The script will recursively scan all subdirectories for .hpp and .txt files")
         sys.exit(1)
 
     sdk_path = sys.argv[1]
