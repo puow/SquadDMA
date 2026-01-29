@@ -276,17 +276,25 @@ class EnterpriseOffsetScanner:
             },
         }
 
-        # Base address patterns
+        # Base address patterns - multiple patterns for better detection
         self.base_address_patterns = {
             "GWorld": [
-                r'GWorld[^\n]*?(?:0x|:|\s)([0-9A-Fa-f]{6,16})',
-                r'UWorld[^\n]*?(?:Address|Addr|Offset)[^\n]*?(?:0x|:)([0-9A-Fa-f]{6,16})',
-                r'World\s*=\s*(?:0x)?([0-9A-Fa-f]{6,16})',
+                # Most common Dumper-7 format
+                r'GWorld\s*[:=]\s*(?:0x)?([0-9A-Fa-f]{7,16})',
+                r'GWorld[^\n]*?(?:0x)([0-9A-Fa-f]{7,16})',
+                r'UWorld.*?(?:0x)([0-9A-Fa-f]{7,16})',
+                r'World\s*(?:Address|Offset|Ptr)?\s*[:=]\s*(?:0x)?([0-9A-Fa-f]{7,16})',
+                # Fallback patterns
+                r'(?:^|\s)GWorld\s+([0-9A-Fa-f]{7,16})',
             ],
             "GName": [
-                r'GName[^\n]*?(?:0x|:|\s)([0-9A-Fa-f]{6,16})',
-                r'FNamePool[^\n]*?(?:0x|:|\s)([0-9A-Fa-f]{6,16})',
-                r'NamePool[^\n]*?(?:Address|Addr|Offset)[^\n]*?(?:0x|:)([0-9A-Fa-f]{6,16})',
+                # Most common Dumper-7 format
+                r'GName\s*[:=]\s*(?:0x)?([0-9A-Fa-f]{7,16})',
+                r'GName[^\n]*?(?:0x)([0-9A-Fa-f]{7,16})',
+                r'FNamePool\s*[:=]\s*(?:0x)?([0-9A-Fa-f]{7,16})',
+                r'NamePool.*?(?:0x)([0-9A-Fa-f]{7,16})',
+                # Fallback patterns
+                r'(?:^|\s)GName\s+([0-9A-Fa-f]{7,16})',
             ],
         }
 
@@ -367,6 +375,10 @@ class EnterpriseOffsetScanner:
 
         print(f"  Scanning {len(txt_files)} text files...")
 
+        # Show which files we're scanning
+        for txt_file in txt_files:
+            print(f"    • {txt_file.name} ({txt_file.stat().st_size / 1024:.1f} KB)")
+
         found_count = 0
 
         for txt_file in txt_files:
@@ -379,22 +391,26 @@ class EnterpriseOffsetScanner:
                     if base_name in self.base_addresses:
                         continue  # Already found
 
-                    for pattern in patterns:
+                    for pattern_idx, pattern in enumerate(patterns):
                         matches = list(re.finditer(pattern, content, re.IGNORECASE | re.MULTILINE))
+
+                        if self.verbose and matches:
+                            print(f"    {Color.DIM}  Pattern {pattern_idx+1} for {base_name}: {len(matches)} matches in {txt_file.name}{Color.END}")
 
                         for match in matches:
                             try:
                                 address_hex = match.group(1)
                                 address = int(address_hex, 16)
 
-                                # Validate address (reasonable range)
-                                if 0x1000000 < address < 0xFFFFFFFFFFFF:
+                                # Validate address (reasonable range for game memory addresses)
+                                if 0x100000 < address < 0xFFFFFFFFFFFF:
                                     # Get context
                                     context_start = max(0, match.start() - 100)
                                     context_end = min(len(content), match.end() + 100)
                                     context = content[context_start:context_end].strip()
 
-                                    confidence = 1.0 if 'GWorld' in context or 'GName' in context else 0.8
+                                    # Higher confidence if the exact name appears in context
+                                    confidence = 1.0 if base_name in context else 0.9
 
                                     self.base_addresses[base_name] = BaseAddressInfo(
                                         name=base_name,
@@ -410,7 +426,9 @@ class EnterpriseOffsetScanner:
                                     found_count += 1
                                     self.log(f"Found {base_name} = 0x{address:X} in {txt_file.name}", "SUCCESS")
                                     break
-                            except (ValueError, IndexError):
+                            except (ValueError, IndexError) as e:
+                                if self.verbose:
+                                    print(f"    {Color.DIM}  Parse error: {e}{Color.END}")
                                 continue
 
                         if base_name in self.base_addresses:
@@ -421,8 +439,64 @@ class EnterpriseOffsetScanner:
 
         self.stats.base_addresses_found = len(self.base_addresses)
 
+        # If still not found, do a more aggressive search
+        if len(self.base_addresses) < 2:
+            print(f"\n  {Color.YELLOW}Running aggressive fallback search...{Color.END}")
+            for txt_file in txt_files:
+                try:
+                    with open(txt_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        lines = f.readlines()
+
+                    for line_num, line in enumerate(lines[:2000], 1):  # First 2000 lines
+                        # Look for hex addresses
+                        if 'GWorld' not in self.base_addresses and 'GWorld' in line:
+                            hex_matches = re.findall(r'(?:0x)?([0-9A-Fa-f]{7,16})', line)
+                            for hex_val in hex_matches:
+                                try:
+                                    addr = int(hex_val, 16)
+                                    if 0x100000 < addr < 0xFFFFFFFFFFFF:
+                                        self.base_addresses["GWorld"] = BaseAddressInfo(
+                                            name="GWorld",
+                                            address=addr,
+                                            hex_address=f"0x{addr:X}",
+                                            file_path=str(txt_file),
+                                            file_name=txt_file.name,
+                                            context=line.strip(),
+                                            pattern_used="fallback",
+                                            confidence=0.8
+                                        )
+                                        self.log(f"Found GWorld = 0x{addr:X} (fallback) in {txt_file.name}:{line_num}", "SUCCESS")
+                                        break
+                                except:
+                                    pass
+
+                        if 'GName' not in self.base_addresses and ('GName' in line or 'FNamePool' in line):
+                            hex_matches = re.findall(r'(?:0x)?([0-9A-Fa-f]{7,16})', line)
+                            for hex_val in hex_matches:
+                                try:
+                                    addr = int(hex_val, 16)
+                                    if 0x100000 < addr < 0xFFFFFFFFFFFF:
+                                        self.base_addresses["GName"] = BaseAddressInfo(
+                                            name="GName",
+                                            address=addr,
+                                            hex_address=f"0x{addr:X}",
+                                            file_path=str(txt_file),
+                                            file_name=txt_file.name,
+                                            context=line.strip(),
+                                            pattern_used="fallback",
+                                            confidence=0.8
+                                        )
+                                        self.log(f"Found GName = 0x{addr:X} (fallback) in {txt_file.name}:{line_num}", "SUCCESS")
+                                        break
+                                except:
+                                    pass
+                except:
+                    pass
+
+            self.stats.base_addresses_found = len(self.base_addresses)
+
         print(f"\n{Color.SUCCESS}✓ Base Address Scan Complete{Color.END}")
-        print(f"  Found: {found_count}/2 base addresses")
+        print(f"  Found: {len(self.base_addresses)}/2 base addresses")
 
         for name, info in self.base_addresses.items():
             print(f"  {Color.GREEN}✓{Color.END} {name}: {info.hex_address} (confidence: {info.confidence*100:.0f}%)")
@@ -579,7 +653,7 @@ class EnterpriseOffsetScanner:
             if result and result.confidence >= 0.7:
                 self.found_offsets[target_name] = result
                 confidence_str = f"({result.confidence*100:.0f}%)"
-                print(f"{Color.GREEN}✓ 0x{result.offset:X:>6s}{Color.END} {Color.DIM}{confidence_str}{Color.END}")
+                print(f"{Color.GREEN}✓ 0x{result.offset:>6X}{Color.END} {Color.DIM}{confidence_str}{Color.END}")
             else:
                 self.missing_offsets[target_name] = target_info
                 print(f"{Color.RED}✗ NOT FOUND{Color.END}")
