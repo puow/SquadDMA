@@ -34,9 +34,9 @@ private:
 	// =============================================================================
 	// These are offsets within UE classes - search Engine_Classes.hpp for:
 
-	// UNetConnection offsets (search for "class UNetConnection")
-	uint64_t OwningActorOffset = 0x98;  // UNetConnection::OwningActor
-	uint64_t MaxPacketOffset = 0xa0;    // UNetConnection::MaxPacket
+	// ULevel offsets (from Dumper-7: Off::InSDK::ULevel::Actors)
+	uint64_t OwningActorOffset = 0xA0;  // ULevel::Actors (TArray base pointer) [UE5]
+	uint64_t MaxPacketOffset = 0xA8;    // ULevel::Actors + 8 (TArray count) [UE5]
 
 	// Runtime variables
 	uint64_t OwningActor;
