@@ -100,18 +100,29 @@ void Engine::Cache()
 	TargetProcess.ExecuteReadScatter(handle);
 	TargetProcess.CloseScatterHandle(handle);
 	std::vector<std::shared_ptr<ActorEntity>> playerlist;
+	int soldier_count = 0;
+	int total_checked = 0;
 	for (std::shared_ptr<ActorEntity> entity : actors)
 	{
 		std::string name = ResolveGName(entity->GetEntityID());
-	
+		total_checked++;
+
+		// DEBUG: Print first 50 actor names to see what's in the game
+		if(total_checked <= 50) {
+			printf("Actor[%d]: %s\n", total_checked, name.c_str());
+		}
+
 		if(name.substr(0,10) != LIT("BP_Soldier"))
 			continue;
+		soldier_count++;
 		entity->SetUp2();
-		if(entity->GetPosition() == Vector3::Zero())
-						continue;
-		//printf("Entity: %s\n", name.c_str());
+		Vector3 pos = entity->GetPosition();
+		printf("Soldier found: %s at (%.2f, %.2f, %.2f)\n", name.c_str(), pos.x, pos.y, pos.z);
+		if(pos == Vector3::Zero())
+			continue;
 		playerlist.push_back(entity);
 	}
+	printf("Total actors checked: %d, Soldiers found: %d, Soldiers added to list: %d\n", total_checked, soldier_count, (int)playerlist.size());
 
 
 	ActorMutex.lock();
