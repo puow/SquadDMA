@@ -30,21 +30,53 @@ Engine::Engine()
 
 std::string Engine::ResolveGName(const uint32_t& id)
 {
+	static int debug_count = 0;
 	char name[256];
 	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
+
+	// Debug first 3 calls
+	bool should_debug = (debug_count < 3);
+	if(should_debug) {
+		printf("\nDEBUG GName Resolution #%d:\n", debug_count + 1);
+		printf("  Base Address: 0x%llX\n", TargetProcess.GetBaseAddress(ProcessName));
+		printf("  GName Offset: 0x%llX\n", GName);
+		printf("  GName Address: 0x%llX\n", gname);
+		printf("  ID to resolve: %u (0x%X)\n", id, id);
+		printf("  Chunk Index: %u\n", (id >> 16) + 2);
+		printf("  Entry Index: %u\n", (uint16_t)id);
+	}
+
 	uintptr_t namepool = TargetProcess.Read<uintptr_t>(gname + (((id >> 16) + 2) * 8));
-	if (!namepool)
+	if (!namepool) {
+		if(should_debug) printf("  ERROR: namepool is NULL!\n");
+		debug_count++;
 		return LIT("");
+	}
+
+	if(should_debug) printf("  Namepool: 0x%llX\n", namepool);
+
 	uintptr_t entry = namepool + (uint32_t)(2 * (uint16_t)id);
-	if (!entry)
+	if (!entry) {
+		if(should_debug) printf("  ERROR: entry is NULL!\n");
+		debug_count++;
 		return LIT("");
+	}
+
+	if(should_debug) printf("  Entry: 0x%llX\n", entry);
 
 	uint16_t nameentry = TargetProcess.Read<uint16_t>(entry);
 	uint32_t namelength = (nameentry >> 6);
 
+	if(should_debug) printf("  Name Entry Header: 0x%X\n", nameentry);
+	if(should_debug) printf("  Name Length: %u\n", namelength);
+
 	namelength = namelength >256 ? 256 : namelength;
 
 	auto result = TargetProcess.Read(entry + 0x2, &name, namelength);
+
+	if(should_debug) printf("  Name Result: '%s'\n", std::string(name, namelength).c_str());
+
+	debug_count++;
 	return std::string(name, namelength);
 }
 void Engine::Cache()
