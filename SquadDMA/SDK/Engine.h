@@ -22,12 +22,12 @@ class Engine
 
 private:
 	// =============================================================================
-	// BASE ADDRESSES (Will change in UE5!)
+	// BASE ADDRESSES (Updated for UE5!)
 	// =============================================================================
-	// These are absolute addresses in the game binary and WILL be different in UE5
-	// Find these in Dumper-7 output or use a pattern scanner
-	uint64_t GWorld = 0x72aa2e0;      // [UE4] Global UWorld pointer - NEEDS UPDATE
-	uint64_t GName = 0x7129580;       // [UE4] Global FNamePool - NEEDS UPDATE
+	// These are absolute addresses in the game binary
+	// Updated from Dumper-7 Squad v10.2 (UE5)
+	uint64_t GWorld = 0xCA49DE8;      // [UE5] Global UWorld pointer
+	uint64_t GName = 0xC788078;       // [UE5] Global FNamePool
 
 	// =============================================================================
 	// STRUCTURE OFFSETS (May change in UE5!)
@@ -43,7 +43,7 @@ private:
 	uint64_t MaxPacket;
 
 	// UWorld offsets (search for "class UWorld")
-	uint64_t OwningGameInstance = 0x180; // UWorld::OwningGameInstance
+	uint64_t OwningGameInstance = 0x1E0; // UWorld::OwningGameInstance [UE5 UPDATED]
 	uint64_t PersistentLevel = 0x30;     // UWorld::PersistentLevel
 
 	// UGameInstance offsets (search for "class UGameInstance")
@@ -53,18 +53,18 @@ private:
 	uint64_t PlayerController = 0x30;    // UPlayer::PlayerController
 
 	// APlayerController offsets (search for "class APlayerController")
-	uint64_t AcknowledgedPawn = 0x2a8;   // APlayerController::AcknowledgedPawn
-	uint64_t CameraManager = 0x2c0;      // APlayerController::PlayerCameraManager
+	uint64_t AcknowledgedPawn = 0x370;   // APlayerController::AcknowledgedPawn [UE5 UPDATED]
+	uint64_t CameraManager = 0x380;      // APlayerController::PlayerCameraManager [UE5 UPDATED]
 
 	// APawn offsets (search for "class APawn")
-	uint64_t PlayerState = 0x248;        // APawn::PlayerState
+	uint64_t PlayerState = 0x2D0;        // APawn::PlayerState [UE5 UPDATED]
 
 	// APlayerCameraManager offsets (search for "class APlayerCameraManager")
 	uint64_t CameraCachePrivate = 0x0;
-	uint64_t CameraCachePrivateOffset = 0x1af0; // APlayerCameraManager::CameraCachePrivate
+	uint64_t CameraCachePrivateOffset = 0x1460; // APlayerCameraManager::CameraCachePrivate [UE5 UPDATED]
 
 	// Squad-specific: ASQPlayerState offsets (search for "class ASQPlayerState")
-	uint64_t TeamID = 0x400;             // ASQPlayerState::TeamID
+	uint64_t TeamID = 0x500;             // ASQPlayerState::TeamId [UE5 UPDATED]
 	CameraCacheEntry CameraEntry; // ScriptStruct Engine.CameraCacheEntry
 	MinimalViewInfo CameraViewInfo; // ScriptStruct Engine.MinimalViewInfo
 	std::vector<std::shared_ptr<ActorEntity>> Actors;

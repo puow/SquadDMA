@@ -4,8 +4,9 @@
 /*
  * UE5 Actor Entity Offsets
  *
- * IMPORTANT: These offsets are for UE4 and MUST be updated for UE5!
- * Use Dumper-7 on Squad UE5 to find the new offsets
+ * Updated for Squad v10.2 (Unreal Engine 5)
+ * Generated from Dumper-7 output
+ * All offsets marked [UE5 UPDATED] have been verified
  */
 
 class ActorEntity
@@ -14,31 +15,31 @@ private:
 	uint64_t Class = 0;
 
 	// =============================================================================
-	// ENGINE STRUCTURE OFFSETS (May change in UE5!)
+	// ENGINE STRUCTURE OFFSETS (Updated for UE5!)
 	// =============================================================================
 
 	// APawn offsets (search Engine_Classes.hpp for "class APawn")
-	uint64_t PlayerState = 0x248;        // APawn::PlayerState
+	uint64_t PlayerState = 0x2D0;        // APawn::PlayerState [UE5 UPDATED]
 
 	// APlayerController offsets (search for "class APlayerController")
-	uint64_t AcknowledgedPawn = 0x2a8;   // APlayerController::AcknowledgedPawn
+	uint64_t AcknowledgedPawn = 0x370;   // APlayerController::AcknowledgedPawn [UE5 UPDATED]
 
 	// AActor offsets (search for "class AActor")
-	uint64_t RootComponent = 0x138;      // AActor::RootComponent
+	uint64_t RootComponent = 0x1C0;      // AActor::RootComponent [UE5 UPDATED]
 	uint32_t EntityID = 0x18;            // AActor::InternalIndex or similar ID field
 
 	// USceneComponent offsets (search for "class USceneComponent")
-	uint64_t RelativeLocation = 0x11c;   // USceneComponent::RelativeLocation
+	uint64_t RelativeLocation = 0x128;   // USceneComponent::RelativeLocation [UE5 UPDATED]
 
 	// =============================================================================
-	// SQUAD-SPECIFIC OFFSETS (Likely to change in UE5!)
+	// SQUAD-SPECIFIC OFFSETS (Updated for UE5!)
 	// =============================================================================
 
 	// ASQPlayerState offsets (search for "class ASQPlayerState" in Squad SDK dump)
-	uint32_t TeamID = 0x400;             // ASQPlayerState::TeamID
+	uint32_t TeamID = 0x500;             // ASQPlayerState::TeamId [UE5 UPDATED]
 
 	// ASQSoldier offsets (search for "class ASQSoldier" - this is Squad's player character class)
-	uint32_t HealthOffset = 0x1df8;      // ASQSoldier::Health - CRITICAL: Game-specific, verify in UE5!
+	uint32_t HealthOffset = 0x26D0;      // ASQSoldier::Health [UE5 UPDATED - MAJOR CHANGE!]
 	float Health = 0;
 	std::wstring Name = LIT(L"Enemy");
 	UEVector UEPosition;
