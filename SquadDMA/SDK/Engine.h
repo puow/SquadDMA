@@ -25,9 +25,9 @@ private:
 	// BASE ADDRESSES (Updated for UE5!)
 	// =============================================================================
 	// These are absolute addresses in the game binary
-	// Updated from Dumper-7 Squad v10.2 (UE5)
-	uint64_t GWorld = 0xCA49DE8;      // [UE5] Global UWorld pointer
-	uint64_t GName = 0xC788078;       // [UE5] Global FNamePool
+	// Updated from Dumper-7 Squad v10.2 (UE5) - Fresh dump 2026-01-31
+	uint64_t GWorld = 0xCA3CD68;      // [UE5] Global UWorld pointer (Fresh)
+	uint64_t GName = 0xC776A78;       // [UE5] Global FNamePool (Fresh)
 
 	// =============================================================================
 	// STRUCTURE OFFSETS (May change in UE5!)
