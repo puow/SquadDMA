@@ -30,51 +30,83 @@ Engine::Engine()
 
 std::string Engine::ResolveGName(const uint32_t& id)
 {
+	// UE5 FName Resolution
+	// UE5 uses a different FNamePool structure than UE4
 	static int debug_count = 0;
 	char name[256];
+
+	// FNamePool base address
 	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
 
-	// Debug first 3 calls
+	// UE5: FNamePool.Blocks is at offset 0x10
+	// This is a pointer to an array of block pointers
+	uintptr_t blocks_ptr = TargetProcess.Read<uintptr_t>(gname + 0x10);
+
 	bool should_debug = (debug_count < 3);
 	if(should_debug) {
-		printf("\nDEBUG GName Resolution #%d:\n", debug_count + 1);
+		printf("\nDEBUG UE5 GName Resolution #%d:\n", debug_count + 1);
 		printf("  Base Address: 0x%llX\n", TargetProcess.GetBaseAddress(ProcessName));
 		printf("  GName Offset: 0x%llX\n", GName);
 		printf("  GName Address: 0x%llX\n", gname);
+		printf("  Blocks Array Ptr: 0x%llX\n", blocks_ptr);
 		printf("  ID to resolve: %u (0x%X)\n", id, id);
-		printf("  Chunk Index: %u\n", (id >> 16) + 2);
-		printf("  Entry Index: %u\n", (uint16_t)id);
 	}
 
-	uintptr_t namepool = TargetProcess.Read<uintptr_t>(gname + (((id >> 16) + 2) * 8));
-	if (!namepool) {
-		if(should_debug) printf("  ERROR: namepool is NULL!\n");
+	if (!blocks_ptr) {
+		if(should_debug) printf("  ERROR: Blocks pointer is NULL!\n");
 		debug_count++;
 		return LIT("");
 	}
 
-	if(should_debug) printf("  Namepool: 0x%llX\n", namepool);
+	// UE5: Each block contains 16384 (0x4000) entries
+	const uint32_t ENTRIES_PER_BLOCK = 0x4000;
+	uint32_t block_index = id / ENTRIES_PER_BLOCK;
+	uint32_t block_offset = id % ENTRIES_PER_BLOCK;
 
-	uintptr_t entry = namepool + (uint32_t)(2 * (uint16_t)id);
-	if (!entry) {
-		if(should_debug) printf("  ERROR: entry is NULL!\n");
+	if(should_debug) {
+		printf("  Block Index: %u\n", block_index);
+		printf("  Block Offset: %u\n", block_offset);
+	}
+
+	// Read the pointer to the specific block
+	uintptr_t block_ptr = TargetProcess.Read<uintptr_t>(blocks_ptr + (block_index * 8));
+
+	if (!block_ptr) {
+		if(should_debug) printf("  ERROR: Block pointer is NULL!\n");
 		debug_count++;
 		return LIT("");
 	}
 
-	if(should_debug) printf("  Entry: 0x%llX\n", entry);
+	if(should_debug) printf("  Block Pointer: 0x%llX\n", block_ptr);
 
-	uint16_t nameentry = TargetProcess.Read<uint16_t>(entry);
-	uint32_t namelength = (nameentry >> 6);
+	// Calculate entry address
+	// Each entry starts with 2-byte header
+	uintptr_t entry = block_ptr + (block_offset * 2);
 
-	if(should_debug) printf("  Name Entry Header: 0x%X\n", nameentry);
-	if(should_debug) printf("  Name Length: %u\n", namelength);
+	if(should_debug) printf("  Entry Address: 0x%llX\n", entry);
 
-	namelength = namelength >256 ? 256 : namelength;
+	// Read the header
+	uint16_t header = TargetProcess.Read<uint16_t>(entry);
 
-	auto result = TargetProcess.Read(entry + 0x2, &name, namelength);
+	// Extract length: top 10 bits are length (header >> 6)
+	uint32_t namelength = (header >> 6);
 
-	if(should_debug) printf("  Name Result: '%s'\n", std::string(name, namelength).c_str());
+	if(should_debug) {
+		printf("  Entry Header: 0x%X\n", header);
+		printf("  Name Length: %u\n", namelength);
+	}
+
+	if(namelength == 0 || namelength > 256) {
+		if(should_debug) printf("  ERROR: Invalid name length!\n");
+		debug_count++;
+		return LIT("");
+	}
+
+	// Read the name string (starts at entry + 2)
+	TargetProcess.Read(entry + 0x2, &name, namelength);
+	name[namelength] = '\0';
+
+	if(should_debug) printf("  Name Result: '%s'\n", name);
 
 	debug_count++;
 	return std::string(name, namelength);
