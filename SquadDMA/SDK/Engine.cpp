@@ -30,9 +30,29 @@ Engine::Engine()
 
 std::string Engine::ResolveGName(const uint32_t& id)
 {
-	// Temporary: Just return "SQSoldier" for all actors to test if filtering works
-	// This bypasses GName resolution entirely for now
-	return LIT("SQSoldier");
+	char name[256];
+	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
+
+	// UE5 FNamePool structure (changed from UE4)
+	// UE5 removed the +2 offset and uses direct block indexing
+	uint32_t block = id >> 16;
+	uint32_t offset = (uint16_t)id;
+
+	uintptr_t namepool = TargetProcess.Read<uintptr_t>(gname + (block * 8));
+	if (!namepool)
+		return LIT("");
+
+	uintptr_t entry = namepool + (uint32_t)(2 * offset);
+	if (!entry)
+		return LIT("");
+
+	uint16_t nameentry = TargetProcess.Read<uint16_t>(entry);
+	uint32_t namelength = (nameentry >> 6);
+
+	namelength = namelength > 256 ? 256 : namelength;
+
+	auto result = TargetProcess.Read(entry + 0x2, &name, namelength);
+	return std::string(name, namelength);
 }
 
 void Engine::Cache()
