@@ -74,59 +74,6 @@ std::string Engine::ResolveGName(const uint32_t& id)
 	return LIT("");  // Return empty for now while debugging structure
 }
 
-	// UE5: Each block contains 16384 (0x4000) entries
-	const uint32_t ENTRIES_PER_BLOCK = 0x4000;
-	uint32_t block_index = id / ENTRIES_PER_BLOCK;
-	uint32_t block_offset = id % ENTRIES_PER_BLOCK;
-
-	if(should_debug) {
-		printf("  Block Index: %u\n", block_index);
-		printf("  Block Offset: %u\n", block_offset);
-	}
-
-	// Read the pointer to the specific block
-	uintptr_t block_ptr = TargetProcess.Read<uintptr_t>(blocks_ptr + (block_index * 8));
-
-	if (!block_ptr) {
-		if(should_debug) printf("  ERROR: Block pointer is NULL!\n");
-		debug_count++;
-		return LIT("");
-	}
-
-	if(should_debug) printf("  Block Pointer: 0x%llX\n", block_ptr);
-
-	// Calculate entry address
-	// Each entry starts with 2-byte header
-	uintptr_t entry = block_ptr + (block_offset * 2);
-
-	if(should_debug) printf("  Entry Address: 0x%llX\n", entry);
-
-	// Read the header
-	uint16_t header = TargetProcess.Read<uint16_t>(entry);
-
-	// Extract length: top 10 bits are length (header >> 6)
-	uint32_t namelength = (header >> 6);
-
-	if(should_debug) {
-		printf("  Entry Header: 0x%X\n", header);
-		printf("  Name Length: %u\n", namelength);
-	}
-
-	if(namelength == 0 || namelength > 256) {
-		if(should_debug) printf("  ERROR: Invalid name length!\n");
-		debug_count++;
-		return LIT("");
-	}
-
-	// Read the name string (starts at entry + 2)
-	TargetProcess.Read(entry + 0x2, &name, namelength);
-	name[namelength] = '\0';
-
-	if(should_debug) printf("  Name Result: '%s'\n", name);
-
-	debug_count++;
-	return std::string(name, namelength);
-}
 void Engine::Cache()
 {
 
@@ -192,7 +139,8 @@ void Engine::Cache()
 			printf("Actor[%d]: %s\n", total_checked, name.c_str());
 		}
 
-		if(name.substr(0,10) != LIT("BP_Soldier"))
+		// UE5: Class name is "SQSoldier" (found in GObjects-Dump.txt)
+		if(name.find(LIT("SQSoldier")) == std::string::npos)
 			continue;
 		soldier_count++;
 		entity->SetUp2();
