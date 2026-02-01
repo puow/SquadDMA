@@ -32,10 +32,17 @@ std::string Engine::ResolveGName(const uint32_t& id)
 {
 	char name[256];
 	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
-	uintptr_t namepool = TargetProcess.Read<uintptr_t>(gname + (((id >> 16) + 2) * 8));
+
+	// UE5 FNamePool structure (changed from UE4)
+	// UE5 removed the +2 offset and changed the block indexing
+	uint32_t block = id >> 16;
+	uint32_t offset = (uint16_t)id;
+
+	uintptr_t namepool = TargetProcess.Read<uintptr_t>(gname + (block * 8));
 	if (!namepool)
 		return LIT("");
-	uintptr_t entry = namepool + (uint32_t)(2 * (uint16_t)id);
+
+	uintptr_t entry = namepool + (uint32_t)(2 * offset);
 	if (!entry)
 		return LIT("");
 
