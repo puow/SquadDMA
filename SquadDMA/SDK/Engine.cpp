@@ -34,7 +34,7 @@ std::string Engine::ResolveGName(const uint32_t& id)
 	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
 
 	// UE5 FNamePool structure (changed from UE4)
-	// UE5 removed the +2 offset and changed the block indexing
+	// UE5 removed the +2 offset and uses direct block indexing
 	uint32_t block = id >> 16;
 	uint32_t offset = (uint16_t)id;
 
@@ -49,11 +49,12 @@ std::string Engine::ResolveGName(const uint32_t& id)
 	uint16_t nameentry = TargetProcess.Read<uint16_t>(entry);
 	uint32_t namelength = (nameentry >> 6);
 
-	namelength = namelength >256 ? 256 : namelength;
+	namelength = namelength > 256 ? 256 : namelength;
 
 	auto result = TargetProcess.Read(entry + 0x2, &name, namelength);
 	return std::string(name, namelength);
 }
+
 void Engine::Cache()
 {
 
@@ -107,18 +108,30 @@ void Engine::Cache()
 	TargetProcess.ExecuteReadScatter(handle);
 	TargetProcess.CloseScatterHandle(handle);
 	std::vector<std::shared_ptr<ActorEntity>> playerlist;
+	int soldier_count = 0;
+	int total_checked = 0;
 	for (std::shared_ptr<ActorEntity> entity : actors)
 	{
 		std::string name = ResolveGName(entity->GetEntityID());
-	
-		if(name.substr(0,10) != LIT("BP_Soldier"))
+		total_checked++;
+
+		// DEBUG: Print first 50 actor names to see what's in the game
+		if(total_checked <= 50) {
+			printf("Actor[%d]: %s\n", total_checked, name.c_str());
+		}
+
+		// UE5: Class name is "SQSoldier" (found in GObjects-Dump.txt)
+		if(name.find(LIT("SQSoldier")) == std::string::npos)
 			continue;
+		soldier_count++;
 		entity->SetUp2();
-		if(entity->GetPosition() == Vector3::Zero())
-						continue;
-		//printf("Entity: %s\n", name.c_str());
+		Vector3 pos = entity->GetPosition();
+		printf("Soldier found: %s at (%.2f, %.2f, %.2f)\n", name.c_str(), pos.x, pos.y, pos.z);
+		if(pos == Vector3::Zero())
+			continue;
 		playerlist.push_back(entity);
 	}
+	printf("Total actors checked: %d, Soldiers found: %d, Soldiers added to list: %d\n", total_checked, soldier_count, (int)playerlist.size());
 
 
 	ActorMutex.lock();

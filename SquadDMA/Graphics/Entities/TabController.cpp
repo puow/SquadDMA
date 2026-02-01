@@ -17,7 +17,7 @@ void TabController::Update()
 	TabController::Pos.x = 0;
 	TabController::Pos.y = 0;
 	TabController::Size = {100, TabController::Parent->GetSize().y-30};
-	TabController::Container::Update();
+	Container::Update();
 }
 
 void TabController::Draw()
@@ -26,5 +26,5 @@ void TabController::Draw()
 		return;
 	int size = TabController::Size.x / 12;
 
-	TabController::Container::Draw();
+	Container::Draw();
 }

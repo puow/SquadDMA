@@ -1,10 +1,11 @@
 #pragma once
 // ScriptStruct CoreUObject.Vector
+// UE5 uses double precision for FVector (24 bytes total)
 struct UEVector {
-	float X; 
-	float Y;
-	float Z;
-};
+	double X; // 8 bytes (UE5 changed from float to double)
+	double Y; // 8 bytes
+	double Z; // 8 bytes
+}; // Total: 24 bytes (0x18) in UE5
 // ScriptStruct CoreUObject.Rotator
 struct UERotator {
 	float Pitch;
@@ -13,9 +14,9 @@ struct UERotator {
 };
 struct MinimalViewInfo
 {
-	struct UEVector Location; // 0x0(0xc)
-	struct UERotator Rotation; // 0xC(0xc)
-	float FOV; // 0x18(0x4)
+	struct UEVector Location; // 0x0(0x18) - UE5: 24 bytes (double precision)
+	struct UERotator Rotation; // 0x18(0xc) - 12 bytes
+	float FOV; // 0x24(0x4) - 4 bytes
 };
 struct CameraCacheEntry
 {
