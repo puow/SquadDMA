@@ -31,32 +31,48 @@ Engine::Engine()
 std::string Engine::ResolveGName(const uint32_t& id)
 {
 	// UE5 FName Resolution
-	// UE5 uses a different FNamePool structure than UE4
 	static int debug_count = 0;
 	char name[256];
 
 	// FNamePool base address
 	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
 
-	// UE5: FNamePool.Blocks is at offset 0x10
-	// This is a pointer to an array of block pointers
-	uintptr_t blocks_ptr = TargetProcess.Read<uintptr_t>(gname + 0x10);
-
 	bool should_debug = (debug_count < 3);
+
+	// Debug: Dump first 128 bytes of FNamePool structure to understand layout
 	if(should_debug) {
 		printf("\nDEBUG UE5 GName Resolution #%d:\n", debug_count + 1);
 		printf("  Base Address: 0x%llX\n", TargetProcess.GetBaseAddress(ProcessName));
 		printf("  GName Offset: 0x%llX\n", GName);
 		printf("  GName Address: 0x%llX\n", gname);
-		printf("  Blocks Array Ptr: 0x%llX\n", blocks_ptr);
 		printf("  ID to resolve: %u (0x%X)\n", id, id);
+
+		printf("\n  FNamePool Structure Dump (first 128 bytes):\n");
+		for(int i = 0; i < 16; i++) {
+			uint64_t value = TargetProcess.Read<uint64_t>(gname + (i * 8));
+			printf("    +0x%02X: 0x%016llX\n", i * 8, value);
+		}
 	}
 
-	if (!blocks_ptr) {
-		if(should_debug) printf("  ERROR: Blocks pointer is NULL!\n");
-		debug_count++;
-		return LIT("");
+	// Try different possible offsets for Blocks pointer
+	uintptr_t blocks_ptr_0x00 = TargetProcess.Read<uintptr_t>(gname + 0x00);
+	uintptr_t blocks_ptr_0x08 = TargetProcess.Read<uintptr_t>(gname + 0x08);
+	uintptr_t blocks_ptr_0x10 = TargetProcess.Read<uintptr_t>(gname + 0x10);
+	uintptr_t blocks_ptr_0x18 = TargetProcess.Read<uintptr_t>(gname + 0x18);
+	uintptr_t blocks_ptr_0x20 = TargetProcess.Read<uintptr_t>(gname + 0x20);
+
+	if(should_debug) {
+		printf("\n  Trying different Blocks offsets:\n");
+		printf("    +0x00: 0x%llX\n", blocks_ptr_0x00);
+		printf("    +0x08: 0x%llX\n", blocks_ptr_0x08);
+		printf("    +0x10: 0x%llX\n", blocks_ptr_0x10);
+		printf("    +0x18: 0x%llX\n", blocks_ptr_0x18);
+		printf("    +0x20: 0x%llX\n", blocks_ptr_0x20);
 	}
+
+	debug_count++;
+	return LIT("");  // Return empty for now while debugging structure
+}
 
 	// UE5: Each block contains 16384 (0x4000) entries
 	const uint32_t ENTRIES_PER_BLOCK = 0x4000;
