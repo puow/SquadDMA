@@ -30,7 +30,10 @@ Engine::Engine()
 
 std::string Engine::ResolveGName(const uint32_t& id)
 {
+	static int debug_count = 0;
 	char name[256];
+	memset(name, 0, sizeof(name));
+
 	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
 
 	// UE5 FNamePool structure (changed from UE4)
@@ -39,19 +42,48 @@ std::string Engine::ResolveGName(const uint32_t& id)
 	uint32_t offset = (uint16_t)id;
 
 	uintptr_t namepool = TargetProcess.Read<uintptr_t>(gname + (block * 8));
-	if (!namepool)
+
+	if (debug_count < 3) {
+		printf("\n[DEBUG GName #%d] ID=%u (0x%X), Block=%u, Offset=%u\n", debug_count + 1, id, id, block, offset);
+		printf("  GName base: 0x%llX\n", gname);
+		printf("  Block ptr addr: 0x%llX\n", gname + (block * 8));
+		printf("  Block ptr value: 0x%llX\n", namepool);
+	}
+
+	if (!namepool) {
+		if (debug_count < 3) printf("  ERROR: Block pointer is NULL!\n");
+		debug_count++;
 		return LIT("");
+	}
 
 	uintptr_t entry = namepool + (uint32_t)(2 * offset);
-	if (!entry)
+	if (!entry) {
+		if (debug_count < 3) printf("  ERROR: Entry is NULL!\n");
+		debug_count++;
 		return LIT("");
+	}
 
 	uint16_t nameentry = TargetProcess.Read<uint16_t>(entry);
 	uint32_t namelength = (nameentry >> 6);
 
-	namelength = namelength > 256 ? 256 : namelength;
+	if (debug_count < 3) {
+		printf("  Entry addr: 0x%llX\n", entry);
+		printf("  Name header: 0x%X, Length: %u\n", nameentry, namelength);
+	}
+
+	if (namelength == 0 || namelength > 256) {
+		if (debug_count < 3) printf("  ERROR: Invalid length!\n");
+		debug_count++;
+		return LIT("");
+	}
 
 	auto result = TargetProcess.Read(entry + 0x2, &name, namelength);
+
+	if (debug_count < 3) {
+		printf("  Name read: '%s'\n", name);
+		debug_count++;
+	}
+
 	return std::string(name, namelength);
 }
 
