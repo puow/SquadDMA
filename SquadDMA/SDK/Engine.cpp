@@ -127,7 +127,11 @@ void Engine::Cache()
 		entity->SetUp2();
 		Vector3 pos = entity->GetPosition();
 		printf("Soldier found: %s at (%.2f, %.2f, %.2f)\n", name.c_str(), pos.x, pos.y, pos.z);
-		if(pos == Vector3::Zero())
+		// Filter out zero positions
+		if(pos.x == 0.0f && pos.y == 0.0f && pos.z == 0.0f)
+			continue;
+		// Filter out extreme/invalid positions (garbage memory reads)
+		if (abs(pos.x) > 1000000.0f || abs(pos.y) > 1000000.0f || abs(pos.z) > 100000.0f)
 			continue;
 		playerlist.push_back(entity);
 	}
@@ -160,9 +164,13 @@ void Engine::UpdatePlayers()
 	for (std::shared_ptr<ActorEntity> entity : tempactors)
 	{
 		Vector3 pos = entity->GetPosition();
-		// Filter out zero positions and dead players
+		// Filter out zero positions
 		if (pos.x == 0.0f && pos.y == 0.0f && pos.z == 0.0f)
 			continue;
+		// Filter out extreme/invalid positions (garbage memory reads)
+		if (abs(pos.x) > 1000000.0f || abs(pos.y) > 1000000.0f || abs(pos.z) > 100000.0f)
+			continue;
+		// Filter out dead players
 		if (entity->GetHealth() <= 0.0f)
 			continue;
 		validactors.push_back(entity);
