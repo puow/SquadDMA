@@ -154,8 +154,22 @@ void Engine::UpdatePlayers()
 	}
 	TargetProcess.ExecuteReadScatter(handle);
 	TargetProcess.CloseScatterHandle(handle);
+
+	// Filter out invalid entities after update
+	std::vector<std::shared_ptr<ActorEntity>> validactors;
+	for (std::shared_ptr<ActorEntity> entity : tempactors)
+	{
+		Vector3 pos = entity->GetPosition();
+		// Filter out zero positions and dead players
+		if (pos.x == 0.0f && pos.y == 0.0f && pos.z == 0.0f)
+			continue;
+		if (entity->GetHealth() <= 0.0f)
+			continue;
+		validactors.push_back(entity);
+	}
+
 	ActorMutex.lock();
-	Actors = tempactors;
+	Actors = validactors;
 	ActorMutex.unlock();
 }
 void Engine::RefreshViewMatrix(VMMDLL_SCATTER_HANDLE handle)
