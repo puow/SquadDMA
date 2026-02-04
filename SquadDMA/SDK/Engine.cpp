@@ -89,16 +89,16 @@ void Engine::Cache()
 		uintptr_t actor = address;
 		if (!actor)
 			continue;
-		
+
 			std::shared_ptr<ActorEntity> entity = std::make_shared<ActorEntity>(actor, handle);
 			actors.push_back(entity);
-		
+
 	}
 	TargetProcess.AddScatterReadRequest(handle, PlayerState + TeamID, reinterpret_cast<void*>(&templocalplayerteamid), sizeof(int));
 	TargetProcess.ExecuteReadScatter(handle);
 	TargetProcess.CloseScatterHandle(handle);
 	LocalPlayerTeamID.store(templocalplayerteamid);
-	
+
 
 	handle = TargetProcess.CreateScatterHandle();
 	for (std::shared_ptr<ActorEntity> entity : actors)
