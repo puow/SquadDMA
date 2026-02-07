@@ -76,51 +76,55 @@ Engine::Engine()
 	printf("  CameraCacheEntry FOV: %.2f %s\n", CameraEntry.POV.FOV,
 		(CameraEntry.POV.FOV > 0 && CameraEntry.POV.FOV < 180) ? "[OK]" : "[WARN - unusual FOV!]");
 
-	// Test GName/FNamePool
-	printf("\n[10] Testing GName/FNamePool...\n");
-	printf("  GName offset: 0x%llX\n", GName);
-	uintptr_t gname_addr = TargetProcess.GetBaseAddress(ProcessName) + GName;
-	printf("  GName address: 0x%llX\n", gname_addr);
+	// Test GObjects (FUObjectArray)
+	printf("\n[10] Testing GObjects (FUObjectArray)...\n");
+	printf("  GObjects offset: 0x%llX\n", GObjects);
+	uintptr_t gobjects_addr = TargetProcess.GetBaseAddress(ProcessName) + GObjects;
+	printf("  GObjects address: 0x%llX\n", gobjects_addr);
 
-	// Try dereferencing GName (like we do with GWorld)
-	uintptr_t gname_deref = TargetProcess.Read<uintptr_t>(gname_addr);
-	printf("  GName dereferenced: 0x%llX %s\n", gname_deref, gname_deref ? "[Pointer Found]" : "[NULL]");
+	// FUObjectArray structure (UE5):
+	// +0x00: TArray ObjObjects (pointer to object array)
+	// +0x08: int32 MaxElements
+	// +0x0C: int32 NumElements
+	uintptr_t objects_array = TargetProcess.Read<uintptr_t>(gobjects_addr);
+	int32_t max_elements = TargetProcess.Read<int32_t>(gobjects_addr + 0x8);
+	int32_t num_elements = TargetProcess.Read<int32_t>(gobjects_addr + 0xC);
 
-	// Use the dereferenced value if valid, otherwise use direct address
-	uintptr_t gname = gname_deref ? gname_deref : gname_addr;
-	printf("  Using GName: 0x%llX\n", gname);
+	printf("  Objects array ptr: 0x%llX %s\n", objects_array, objects_array ? "[OK]" : "[FAIL - NULL!]");
+	printf("  MaxElements: %d\n", max_elements);
+	printf("  NumElements: %d %s\n", num_elements,
+		(num_elements > 0 && num_elements < 500000) ? "[OK]" : "[WARN - unusual count!]");
 
-	// Dump first 128 bytes of memory at actual GName address
-	printf("  Raw memory dump (first 128 bytes):\n");
-	uint64_t raw_data[16];
-	for (int i = 0; i < 16; i++) {
-		raw_data[i] = TargetProcess.Read<uint64_t>(gname + (i * 8));
-		if (i % 4 == 0) printf("  +0x%02X: ", i * 8);
-		printf("0x%016llX ", raw_data[i]);
-		if ((i + 1) % 4 == 0) printf("\n");
-	}
+	// Test reading first few object entries
+	if (objects_array && num_elements > 0 && num_elements < 500000) {
+		printf("  Testing first 5 objects:\n");
+		for (int i = 0; i < 5 && i < num_elements; i++) {
+			// Each FUObjectItem is typically 24 bytes (0x18)
+			// +0x00: UObject* Object
+			// +0x08: int32 Flags
+			// +0x0C: int32 ClusterRootIndex
+			// +0x10: int32 SerialNumber
+			uintptr_t item_addr = objects_array + (i * 0x18);
+			uintptr_t object_ptr = TargetProcess.Read<uintptr_t>(item_addr);
+			int32_t flags = TargetProcess.Read<int32_t>(item_addr + 0x8);
 
-	// Test reading block 0 directly (blocks stored inline in FNamePool)
-	uintptr_t block0 = TargetProcess.Read<uintptr_t>(gname);
-	printf("  Block[0] ptr (at gname+0x0): 0x%llX %s\n", block0, block0 ? "[OK]" : "[FAIL - NULL!]");
+			printf("    [%d] Object: 0x%llX, Flags: 0x%X\n", i, object_ptr, flags);
 
-	// Also test at offset 0x10 (where Blocks array pointer might be)
-	uintptr_t blocks_ptr = TargetProcess.Read<uintptr_t>(gname + 0x10);
-	printf("  Blocks array ptr (at gname+0x10): 0x%llX %s\n", blocks_ptr, blocks_ptr ? "[OK]" : "[FAIL - NULL!]");
-
-	// Try to read a common FName (id 0 is usually "None")
-	if (block0) {
-		uint16_t entry0_header = TargetProcess.Read<uint16_t>(block0);
-		uint32_t entry0_len = entry0_header >> 6;
-		printf("  FName[0] length: %u %s\n", entry0_len,
-			(entry0_len > 0 && entry0_len < 64) ? "[OK]" : "[WARN]");
-
-		if (entry0_len > 0 && entry0_len < 64) {
-			char testname[64] = {0};
-			TargetProcess.Read(block0 + 0x2, &testname, entry0_len);
-			printf("  FName[0] string: '%s'\n", testname);
+			// If object is valid, try to read its Class pointer
+			if (object_ptr) {
+				// UObject::Class is typically at +0x10 in UE5
+				uintptr_t class_ptr = TargetProcess.Read<uintptr_t>(object_ptr + 0x10);
+				printf("         Class: 0x%llX\n", class_ptr);
+			}
 		}
 	}
+
+	printf("\n[11] GName Status (FNamePool)...\n");
+	printf("  GName offset: 0x%llX\n", GName);
+	uintptr_t gname_addr = TargetProcess.GetBaseAddress(ProcessName) + GName;
+	uintptr_t gname_value = TargetProcess.Read<uintptr_t>(gname_addr);
+	printf("  GName value: 0x%llX %s\n", gname_value,
+		gname_value ? "[Available]" : "[NULL - Will use class pointer matching instead]");
 
 	printf("\n=== INITIALIZATION COMPLETE ===\n\n");
 }
@@ -261,38 +265,127 @@ void Engine::Cache()
 
 		printf("  TeamID: %d\n", entity->GetTeamID());
 		printf("  Health: %.2f\n", entity->GetHealth());
+
+		// Read Class pointer (UObject::Class at +0x10)
+		uint64_t class_ptr = entity->GetClass() ?
+			TargetProcess.Read<uint64_t>(entity->GetClass() + 0x10) : 0;
+		printf("  Class pointer (at +0x10): 0x%llX\n", class_ptr);
 	}
 	printf("=== END ACTOR VALIDATION ===\n\n");
 
-	std::vector<std::shared_ptr<ActorEntity>> playerlist;
-	int soldier_count = 0;
-	int total_checked = 0;
+	// ===========================================================================
+	// CLASS POINTER DETECTION PHASE
+	// Since GName is NULL, we'll identify soldiers by their Class pointer
+	// ===========================================================================
+	printf("\n=== CLASS POINTER ANALYSIS ===\n");
+	std::map<uint64_t, int> class_counts; // Count occurrences of each class pointer
+	std::map<uint64_t, std::vector<std::shared_ptr<ActorEntity>>> class_entities;
+
 	for (std::shared_ptr<ActorEntity> entity : actors)
 	{
-		std::string name = ResolveGName(entity->GetEntityID());
-		total_checked++;
+		if (!entity->GetClass())
+			continue;
 
-		// DEBUG: Print first 50 actor names to see what's in the game
-		if(total_checked <= 50) {
-			printf("Actor[%d]: %s\n", total_checked, name.c_str());
+		// Read UObject::Class pointer (at offset +0x10)
+		uint64_t class_ptr = TargetProcess.Read<uint64_t>(entity->GetClass() + 0x10);
+		if (!class_ptr)
+			continue;
+
+		class_counts[class_ptr]++;
+		class_entities[class_ptr].push_back(entity);
+	}
+
+	// Print class analysis
+	printf("Found %zu unique class pointers:\n", class_counts.size());
+	int class_rank = 0;
+	for (auto& pair : class_counts)
+	{
+		class_rank++;
+		printf("  [%d] Class 0x%llX: %d instances\n", class_rank, pair.first, pair.second);
+
+		// For top 3 classes, show properties of first instance
+		if (class_rank <= 3 && !class_entities[pair.first].empty())
+		{
+			auto sample = class_entities[pair.first][0];
+			printf("      Sample: TeamID=%d, Health=%.2f, Pos=(%.1f,%.1f,%.1f)\n",
+				sample->GetTeamID(), sample->GetHealth(),
+				sample->GetPosition().x, sample->GetPosition().y, sample->GetPosition().z);
+		}
+	}
+
+	// Identify soldier class: most common class with valid PlayerState, Health, and position
+	uint64_t soldier_class_ptr = 0;
+	int max_valid_count = 0;
+
+	for (auto& pair : class_counts)
+	{
+		uint64_t class_ptr = pair.first;
+		int valid_count = 0;
+
+		// Count how many entities of this class have valid soldier properties
+		for (auto& entity : class_entities[class_ptr])
+		{
+			// Valid soldier criteria:
+			// 1. Has non-zero position
+			// 2. Has health > 0
+			// 3. Has valid TeamID (0 or 1 typically)
+			Vector3 pos = entity->GetPosition();
+			float health = entity->GetHealth();
+			int team = entity->GetTeamID();
+
+			bool valid_pos = !(pos.x == 0.0f && pos.y == 0.0f && pos.z == 0.0f);
+			bool valid_health = health > 0.0f && health <= 200.0f;
+			bool valid_team = team >= 0 && team <= 10;
+
+			if (valid_pos && valid_health && valid_team)
+				valid_count++;
 		}
 
-		// UE5: Class name is "SQSoldier" (found in GObjects-Dump.txt)
-		if(name.find(LIT("SQSoldier")) == std::string::npos)
-			continue;
-		soldier_count++;
-		entity->SetUp2();
-		Vector3 pos = entity->GetPosition();
-		printf("Soldier found: %s at (%.2f, %.2f, %.2f)\n", name.c_str(), pos.x, pos.y, pos.z);
-		// Filter out zero positions
-		if(pos.x == 0.0f && pos.y == 0.0f && pos.z == 0.0f)
-			continue;
-		// Filter out extreme/invalid positions (garbage memory reads)
-		if (abs(pos.x) > 1000000.0f || abs(pos.y) > 1000000.0f || abs(pos.z) > 100000.0f)
-			continue;
-		playerlist.push_back(entity);
+		if (valid_count > max_valid_count)
+		{
+			max_valid_count = valid_count;
+			soldier_class_ptr = class_ptr;
+		}
 	}
-	printf("Total actors checked: %d, Soldiers found: %d, Soldiers added to list: %d\n", total_checked, soldier_count, (int)playerlist.size());
+
+	printf("\nIdentified Soldier Class: 0x%llX (%d valid soldiers)\n", soldier_class_ptr, max_valid_count);
+	printf("=== END CLASS ANALYSIS ===\n\n");
+
+	// ===========================================================================
+	// BUILD PLAYER LIST using class pointer matching
+	// ===========================================================================
+	std::vector<std::shared_ptr<ActorEntity>> playerlist;
+
+	if (soldier_class_ptr)
+	{
+		for (std::shared_ptr<ActorEntity> entity : actors)
+		{
+			if (!entity->GetClass())
+				continue;
+
+			// Read class pointer and match against soldier class
+			uint64_t class_ptr = TargetProcess.Read<uint64_t>(entity->GetClass() + 0x10);
+			if (class_ptr != soldier_class_ptr)
+				continue;
+
+			entity->SetUp2();
+			Vector3 pos = entity->GetPosition();
+
+			// Filter out zero positions
+			if(pos.x == 0.0f && pos.y == 0.0f && pos.z == 0.0f)
+				continue;
+
+			// Filter out extreme/invalid positions (garbage memory reads)
+			if (abs(pos.x) > 1000000.0f || abs(pos.y) > 1000000.0f || abs(pos.z) > 100000.0f)
+				continue;
+
+			printf("Soldier at (%.2f, %.2f, %.2f), Health: %.2f, Team: %d\n",
+				pos.x, pos.y, pos.z, entity->GetHealth(), entity->GetTeamID());
+			playerlist.push_back(entity);
+		}
+	}
+
+	printf("Total soldiers added to ESP list: %d\n", (int)playerlist.size());
 
 
 	ActorMutex.lock();

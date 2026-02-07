@@ -27,7 +27,8 @@ private:
 	// These are absolute addresses in the game binary
 	// Updated from Dumper-7 Squad v10.2 (UE5) - From offsetsinfo.json
 	uint64_t GWorld = 0xCA3CD68;      // [UE5] Global UWorld pointer
-	uint64_t GName = 0xC788078;       // [UE5] Global FNamePool (offsetsinfo.json: 209152632)
+	uint64_t GName = 0xC788078;       // [UE5] Global FNamePool (NULL - not used in UE5)
+	uint64_t GObjects = 0xC8B3960;    // [UE5] Global UObject array (FUObjectArray)
 
 	// =============================================================================
 	// STRUCTURE OFFSETS (May change in UE5!)
