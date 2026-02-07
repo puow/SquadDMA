@@ -36,18 +36,32 @@ std::string Engine::ResolveGName(const uint32_t& id)
 
 	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
 
-	// UE5 FNamePool structure (changed from UE4)
-	// UE5 removed the +2 offset and uses direct block indexing
-	uint32_t block = id >> 16;
-	uint32_t offset = (uint16_t)id;
+	// UE5 FNamePool: Blocks array is at offset 0x10
+	uintptr_t blocks_array = TargetProcess.Read<uintptr_t>(gname + 0x10);
 
-	uintptr_t namepool = TargetProcess.Read<uintptr_t>(gname + (block * 8));
+	// UE5: Each block contains 16384 (0x4000) entries
+	const uint32_t ENTRIES_PER_BLOCK = 0x4000;
+	uint32_t block = id / ENTRIES_PER_BLOCK;
+	uint32_t offset = id % ENTRIES_PER_BLOCK;
 
 	if (debug_count < 3) {
 		printf("\n[DEBUG GName #%d] ID=%u (0x%X), Block=%u, Offset=%u\n", debug_count + 1, id, id, block, offset);
 		printf("  GName base: 0x%llX\n", gname);
-		printf("  Block ptr addr: 0x%llX\n", gname + (block * 8));
-		printf("  Block ptr value: 0x%llX\n", namepool);
+		printf("  Blocks array ptr (gname+0x10): 0x%llX\n", blocks_array);
+	}
+
+	if (!blocks_array) {
+		if (debug_count < 3) printf("  ERROR: Blocks array pointer is NULL!\n");
+		debug_count++;
+		return LIT("");
+	}
+
+	// Read the specific block pointer from the blocks array
+	uintptr_t namepool = TargetProcess.Read<uintptr_t>(blocks_array + (block * 8));
+
+	if (debug_count < 3) {
+		printf("  Block[%u] ptr addr: 0x%llX\n", block, blocks_array + (block * 8));
+		printf("  Block[%u] ptr value: 0x%llX\n", block, namepool);
 	}
 
 	if (!namepool) {
@@ -56,12 +70,8 @@ std::string Engine::ResolveGName(const uint32_t& id)
 		return LIT("");
 	}
 
-	uintptr_t entry = namepool + (uint32_t)(2 * offset);
-	if (!entry) {
-		if (debug_count < 3) printf("  ERROR: Entry is NULL!\n");
-		debug_count++;
-		return LIT("");
-	}
+	// Calculate entry address: block base + (offset * 2) for FNameEntry header
+	uintptr_t entry = namepool + (offset * 2);
 
 	uint16_t nameentry = TargetProcess.Read<uint16_t>(entry);
 	uint32_t namelength = (nameentry >> 6);
