@@ -81,26 +81,22 @@ Engine::Engine()
 	printf("  GName offset: 0x%llX\n", GName);
 	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
 	printf("  GName address: 0x%llX\n", gname);
-	uintptr_t blocks_array = TargetProcess.Read<uintptr_t>(gname + 0x10);
-	printf("  Blocks array ptr (at +0x10): 0x%llX %s\n", blocks_array, blocks_array ? "[OK]" : "[FAIL - NULL!]");
 
-	if (blocks_array) {
-		// Test reading block 0
-		uintptr_t block0 = TargetProcess.Read<uintptr_t>(blocks_array);
-		printf("  Block[0] ptr: 0x%llX %s\n", block0, block0 ? "[OK]" : "[FAIL - NULL!]");
+	// Test reading block 0 directly (blocks stored inline in FNamePool)
+	uintptr_t block0 = TargetProcess.Read<uintptr_t>(gname);
+	printf("  Block[0] ptr (at gname+0x0): 0x%llX %s\n", block0, block0 ? "[OK]" : "[FAIL - NULL!]");
 
-		// Try to read a common FName (id 0 is usually "None")
-		if (block0) {
-			uint16_t entry0_header = TargetProcess.Read<uint16_t>(block0);
-			uint32_t entry0_len = entry0_header >> 6;
-			printf("  FName[0] length: %u %s\n", entry0_len,
-				(entry0_len > 0 && entry0_len < 64) ? "[OK]" : "[WARN]");
+	// Try to read a common FName (id 0 is usually "None")
+	if (block0) {
+		uint16_t entry0_header = TargetProcess.Read<uint16_t>(block0);
+		uint32_t entry0_len = entry0_header >> 6;
+		printf("  FName[0] length: %u %s\n", entry0_len,
+			(entry0_len > 0 && entry0_len < 64) ? "[OK]" : "[WARN]");
 
-			if (entry0_len > 0 && entry0_len < 64) {
-				char testname[64] = {0};
-				TargetProcess.Read(block0 + 0x2, &testname, entry0_len);
-				printf("  FName[0] string: '%s'\n", testname);
-			}
+		if (entry0_len > 0 && entry0_len < 64) {
+			char testname[64] = {0};
+			TargetProcess.Read(block0 + 0x2, &testname, entry0_len);
+			printf("  FName[0] string: '%s'\n", testname);
 		}
 	}
 
@@ -115,31 +111,18 @@ std::string Engine::ResolveGName(const uint32_t& id)
 
 	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
 
-	// UE5 FNamePool: Blocks array is at offset 0x10
-	uintptr_t blocks_array = TargetProcess.Read<uintptr_t>(gname + 0x10);
+	// UE5 FNamePool: Blocks are stored directly in the structure (not via pointer array)
+	// Calculate block and offset using bit shifting (UE5 method)
+	uint32_t block = id >> 16;
+	uint32_t offset = (uint16_t)id;
 
-	// UE5: Each block contains 16384 (0x4000) entries
-	const uint32_t ENTRIES_PER_BLOCK = 0x4000;
-	uint32_t block = id / ENTRIES_PER_BLOCK;
-	uint32_t offset = id % ENTRIES_PER_BLOCK;
+	// Read block pointer directly from GName structure
+	uintptr_t namepool = TargetProcess.Read<uintptr_t>(gname + (block * 8));
 
 	if (debug_count < 3) {
 		printf("\n[DEBUG GName #%d] ID=%u (0x%X), Block=%u, Offset=%u\n", debug_count + 1, id, id, block, offset);
 		printf("  GName base: 0x%llX\n", gname);
-		printf("  Blocks array ptr (gname+0x10): 0x%llX\n", blocks_array);
-	}
-
-	if (!blocks_array) {
-		if (debug_count < 3) printf("  ERROR: Blocks array pointer is NULL!\n");
-		debug_count++;
-		return LIT("");
-	}
-
-	// Read the specific block pointer from the blocks array
-	uintptr_t namepool = TargetProcess.Read<uintptr_t>(blocks_array + (block * 8));
-
-	if (debug_count < 3) {
-		printf("  Block[%u] ptr addr: 0x%llX\n", block, blocks_array + (block * 8));
+		printf("  Block[%u] ptr addr (gname+%llu): 0x%llX\n", block, block * 8, gname + (block * 8));
 		printf("  Block[%u] ptr value: 0x%llX\n", block, namepool);
 	}
 
