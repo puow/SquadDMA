@@ -79,10 +79,18 @@ Engine::Engine()
 	// Test GName/FNamePool
 	printf("\n[10] Testing GName/FNamePool...\n");
 	printf("  GName offset: 0x%llX\n", GName);
-	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
-	printf("  GName address: 0x%llX\n", gname);
+	uintptr_t gname_addr = TargetProcess.GetBaseAddress(ProcessName) + GName;
+	printf("  GName address: 0x%llX\n", gname_addr);
 
-	// Dump first 128 bytes of memory at GName address to see structure
+	// Try dereferencing GName (like we do with GWorld)
+	uintptr_t gname_deref = TargetProcess.Read<uintptr_t>(gname_addr);
+	printf("  GName dereferenced: 0x%llX %s\n", gname_deref, gname_deref ? "[Pointer Found]" : "[NULL]");
+
+	// Use the dereferenced value if valid, otherwise use direct address
+	uintptr_t gname = gname_deref ? gname_deref : gname_addr;
+	printf("  Using GName: 0x%llX\n", gname);
+
+	// Dump first 128 bytes of memory at actual GName address
 	printf("  Raw memory dump (first 128 bytes):\n");
 	uint64_t raw_data[16];
 	for (int i = 0; i < 16; i++) {
