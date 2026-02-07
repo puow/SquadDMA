@@ -82,9 +82,23 @@ Engine::Engine()
 	uintptr_t gname = TargetProcess.GetBaseAddress(ProcessName) + GName;
 	printf("  GName address: 0x%llX\n", gname);
 
+	// Dump first 128 bytes of memory at GName address to see structure
+	printf("  Raw memory dump (first 128 bytes):\n");
+	uint64_t raw_data[16];
+	for (int i = 0; i < 16; i++) {
+		raw_data[i] = TargetProcess.Read<uint64_t>(gname + (i * 8));
+		if (i % 4 == 0) printf("  +0x%02X: ", i * 8);
+		printf("0x%016llX ", raw_data[i]);
+		if ((i + 1) % 4 == 0) printf("\n");
+	}
+
 	// Test reading block 0 directly (blocks stored inline in FNamePool)
 	uintptr_t block0 = TargetProcess.Read<uintptr_t>(gname);
 	printf("  Block[0] ptr (at gname+0x0): 0x%llX %s\n", block0, block0 ? "[OK]" : "[FAIL - NULL!]");
+
+	// Also test at offset 0x10 (where Blocks array pointer might be)
+	uintptr_t blocks_ptr = TargetProcess.Read<uintptr_t>(gname + 0x10);
+	printf("  Blocks array ptr (at gname+0x10): 0x%llX %s\n", blocks_ptr, blocks_ptr ? "[OK]" : "[FAIL - NULL!]");
 
 	// Try to read a common FName (id 0 is usually "None")
 	if (block0) {
