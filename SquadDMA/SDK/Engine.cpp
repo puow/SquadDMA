@@ -420,9 +420,9 @@ void Engine::UpdatePlayers()
 		// Filter out extreme/invalid positions (garbage memory reads)
 		if (abs(pos.x) > 1000000.0f || abs(pos.y) > 1000000.0f || abs(pos.z) > 100000.0f)
 			continue;
-		// Filter out dead players
-		if (entity->GetHealth() <= 0.0f)
-			continue;
+		// TEMPORARILY DISABLED: Filter out dead players (health offset is wrong)
+		// if (entity->GetHealth() <= 0.0f)
+		//	continue;
 		validactors.push_back(entity);
 	}
 
