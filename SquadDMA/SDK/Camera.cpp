@@ -42,8 +42,8 @@ static ViewMatrix CreateMatrix(Vector3 rot, Vector3 origin) {
 Vector2 Camera::WorldToScreen(MinimalViewInfo viewinfo, Vector3 world)
 {
 	Vector3 Screenlocation(0, 0, 0);
-	Vector3 rot = Vector3(viewinfo.Rotation.Pitch, viewinfo.Rotation.Yaw, viewinfo.Rotation.Roll);
-	Vector3 campos = Vector3(viewinfo.Location.X, viewinfo.Location.Y, viewinfo.Location.Z);
+	Vector3 rot = Vector3(static_cast<float>(viewinfo.Rotation.Pitch), static_cast<float>(viewinfo.Rotation.Yaw), static_cast<float>(viewinfo.Rotation.Roll));
+	Vector3 campos = Vector3(static_cast<float>(viewinfo.Location.X), static_cast<float>(viewinfo.Location.Y), static_cast<float>(viewinfo.Location.Z));
 	const ViewMatrix tempMatrix = CreateMatrix(rot, Vector3(0, 0, 0));
 
 	Vector3 vAxisX(tempMatrix.matrix[0][0], tempMatrix.matrix[0][1], tempMatrix.matrix[0][2]);
