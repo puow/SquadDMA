@@ -68,6 +68,63 @@ Engine::Engine()
 	CameraManager = TargetProcess.Read<uint64_t>(PlayerController + CameraManager);
 	printf("  CameraManager: 0x%llX %s\n", CameraManager, CameraManager ? "[OK]" : "[FAIL - NULL!]");
 
+	// If CameraManager is NULL, scan nearby offsets to find it
+	if (!CameraManager) {
+		printf("\n  [!] CameraManager NULL at 0x328 - scanning PlayerController memory...\n");
+		printf("  PlayerController base: 0x%llX\n", PlayerController);
+
+		// Dump raw memory from 0x300 to 0x400 to find the CameraManager pointer
+		printf("\n  === MEMORY DUMP: PlayerController + 0x300 to 0x400 ===\n");
+		for (uint64_t scan_offset = 0x300; scan_offset <= 0x400; scan_offset += 0x8) {
+			uint64_t val = TargetProcess.Read<uint64_t>(PlayerController + scan_offset);
+			if (val != 0) {
+				printf("  +0x%03llX: 0x%llX", scan_offset, val);
+
+				// Check if this looks like a valid UObject pointer (heap address range)
+				// Valid pointers are typically > 0x10000 and < 0x7FFFFFFFFFFF
+				if (val > 0x10000 && val < 0x7FFFFFFFFFFF) {
+					// Try reading its class pointer (UObject::ClassPrivate at +0x10)
+					uint64_t maybe_class = TargetProcess.Read<uint64_t>(val + 0x10);
+					if (maybe_class > 0x10000 && maybe_class < 0x7FFFFFFFFFFF) {
+						// Try to read CameraCacheEntry from this potential CameraManager
+						CameraCacheEntry test_entry = TargetProcess.Read<CameraCacheEntry>(val + CameraCachePrivateOffset);
+						if (test_entry.POV.FOV > 1.0f && test_entry.POV.FOV < 180.0f) {
+							printf(" <-- LIKELY CAMERA MANAGER! FOV=%.2f, Loc=(%.1f,%.1f,%.1f)",
+								test_entry.POV.FOV,
+								test_entry.POV.Location.X, test_entry.POV.Location.Y, test_entry.POV.Location.Z);
+							CameraManager = val;
+						} else {
+							printf(" [UObject, class=0x%llX]", maybe_class);
+						}
+					}
+				}
+				printf("\n");
+			}
+		}
+
+		if (CameraManager) {
+			printf("\n  [+] Found CameraManager at offset +0x???  -> 0x%llX\n", CameraManager);
+		} else {
+			printf("\n  [!] Could not find CameraManager in range 0x300-0x400\n");
+			printf("  Expanding search to 0x200-0x600...\n");
+			for (uint64_t scan_offset = 0x200; scan_offset <= 0x600; scan_offset += 0x8) {
+				uint64_t val = TargetProcess.Read<uint64_t>(PlayerController + scan_offset);
+				if (val > 0x10000 && val < 0x7FFFFFFFFFFF) {
+					uint64_t maybe_class = TargetProcess.Read<uint64_t>(val + 0x10);
+					if (maybe_class > 0x10000 && maybe_class < 0x7FFFFFFFFFFF) {
+						CameraCacheEntry test_entry = TargetProcess.Read<CameraCacheEntry>(val + CameraCachePrivateOffset);
+						if (test_entry.POV.FOV > 1.0f && test_entry.POV.FOV < 180.0f) {
+							printf("  +0x%03llX: 0x%llX <-- CAMERA MANAGER FOUND! FOV=%.2f\n",
+								scan_offset, val, test_entry.POV.FOV);
+							CameraManager = val;
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Test CameraCacheEntry
 	printf("\n[9] Testing CameraCacheEntry...\n");
 	printf("  Offset: 0x%llX\n", CameraCachePrivateOffset);
