@@ -29,7 +29,10 @@ void DrawPlayerEsp()
 		if (distance < 0)
 			continue;
 		if (entity->GetTeamID() == LocalPlayerTeamID.load())
-			continue;
+		{
+			// TODO: Re-enable team filter once enemy detection is verified
+			// continue;
+		}
 		if(entity->GetHealth() <= 0)
 			continue;
 		std::wstring wdistance = Configs.Player.Distance ? L"[" + std::to_wstring((int)distance) + L"m]" : L"";
