@@ -289,6 +289,7 @@ void Engine::Cache()
 	TargetProcess.ExecuteReadScatter(handle);
 	TargetProcess.CloseScatterHandle(handle);
 	LocalPlayerTeamID.store(templocalplayerteamid);
+	printf("LocalPlayerTeamID: %d\n", templocalplayerteamid);
 
 
 	handle = TargetProcess.CreateScatterHandle();
@@ -405,6 +406,18 @@ void Engine::Cache()
 	}
 
 	printf("\nIdentified Soldier Class: 0x%llX (%d valid soldiers)\n", soldier_class_ptr, max_valid_count);
+
+	// Team breakdown for the identified class
+	if (soldier_class_ptr && class_entities.count(soldier_class_ptr)) {
+		int team1_count = 0, team2_count = 0, team_other_count = 0;
+		for (auto& entity : class_entities[soldier_class_ptr]) {
+			int t = entity->GetTeamID();
+			if (t == 1) team1_count++;
+			else if (t == 2) team2_count++;
+			else team_other_count++;
+		}
+		printf("Team breakdown: Team1=%d, Team2=%d, Other=%d\n", team1_count, team2_count, team_other_count);
+	}
 	printf("=== END CLASS ANALYSIS ===\n\n");
 
 	// ===========================================================================
