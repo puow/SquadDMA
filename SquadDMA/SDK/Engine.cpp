@@ -390,8 +390,8 @@ void Engine::Cache()
 			int team = entity->GetTeamID();
 
 			bool valid_pos = !(pos.x == 0.0f && pos.y == 0.0f && pos.z == 0.0f);
-			bool valid_health = health > 0.0f && health <= 200.0f;
-			bool valid_team = team >= 0 && team <= 10;
+			bool valid_health = health > 0.0f && health <= 100.0f;  // Squad max HP is 100
+			bool valid_team = team >= 1 && team <= 2;               // Squad has exactly 2 teams (1 and 2)
 
 			if (valid_pos && valid_health && valid_team)
 				valid_count++;
