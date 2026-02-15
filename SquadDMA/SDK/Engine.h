@@ -52,7 +52,7 @@ private:
 
 	// APlayerController offsets (search for "class APlayerController")
 	uint64_t AcknowledgedPawn = 0x370;   // APlayerController::AcknowledgedPawn [UE5]
-	uint64_t CameraManager = 0x328;      // APlayerController::PlayerCameraManager [UE5]
+	uint64_t CameraManager = 0x380;      // APlayerController::PlayerCameraManager [UE5]
 
 	// APawn offsets (search for "class APawn")
 	uint64_t PlayerState = 0x2D0;        // APawn::PlayerState [UE5]
