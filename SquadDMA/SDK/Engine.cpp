@@ -7,187 +7,176 @@ Engine::Engine()
 {
 	printf("\n=== ENGINE INITIALIZATION & OFFSET VALIDATION ===\n");
 
-	// Test GWorld
+	size_t base = TargetProcess.GetBaseAddress(ProcessName);
+	size_t base_size = TargetProcess.GetBaseSize(ProcessName);
+	size_t base_end = base + base_size;
+
+	// Helper: check if pointer is a valid heap pointer (outside module range)
+	auto isHeapPtr = [&](uint64_t ptr) -> bool {
+		if (ptr == 0) return false;
+		if (ptr < 0x10000) return false;            // Too low
+		if (ptr > 0x7FFFFFFFFFFF) return false;     // Kernel space
+		if (ptr >= base && ptr < base_end) return false; // Inside module = code/data, not heap UObject
+		return true;
+	};
+
+	printf("  Module range: 0x%llX - 0x%llX (size: 0x%llX)\n",
+		(uint64_t)base, (uint64_t)base_end, (uint64_t)base_size);
+
+	// [1] Read GWorld
 	printf("\n[1] Testing GWorld...\n");
 	printf("  GWorld offset: 0x%llX\n", GWorld);
-	printf("  Base + GWorld: 0x%llX\n", TargetProcess.GetBaseAddress(ProcessName) + GWorld);
-	GWorld = TargetProcess.Read<uint64_t>(TargetProcess.GetBaseAddress(ProcessName) + GWorld);
-	printf("  GWorld value: 0x%llX %s\n", GWorld, GWorld ? "[OK]" : "[FAIL - NULL!]");
+	uint64_t gworld_addr = base + GWorld;
+	printf("  Base + GWorld: 0x%llX\n", gworld_addr);
+	GWorld = TargetProcess.Read<uint64_t>(gworld_addr);
+	printf("  GWorld value: 0x%llX\n", GWorld);
 
-	// Test PersistentLevel
+	// Check if GWorld is within module range (needs double-dereference)
+	if (GWorld >= base && GWorld < base_end) {
+		printf("  [!] GWorld (0x%llX) is INSIDE module range - trying double dereference...\n", GWorld);
+		uint64_t gworld_deref = TargetProcess.Read<uint64_t>(GWorld);
+		printf("  Double-deref GWorld: 0x%llX\n", gworld_deref);
+		if (isHeapPtr(gworld_deref)) {
+			printf("  [+] Double-deref succeeded! Using 0x%llX as UWorld\n", gworld_deref);
+			GWorld = gworld_deref;
+		} else {
+			printf("  [!] Double-deref also invalid. GWorld may be wrong or game not in match.\n");
+		}
+	}
+
+	if (!isHeapPtr(GWorld)) {
+		printf("  [FAIL] GWorld 0x%llX is not a valid heap pointer!\n", GWorld);
+		printf("  Possible causes:\n");
+		printf("    - Player not in a match (main menu / loading screen)\n");
+		printf("    - Game was updated and GWorld offset changed\n");
+		printf("    - GWorld offset 0x%llX is incorrect\n", TargetProcess.Read<uint64_t>(gworld_addr));
+		printf("=== INITIALIZATION FAILED - WILL RETRY ===\n\n");
+		return;
+	}
+	printf("  GWorld: 0x%llX [OK - valid heap pointer]\n", GWorld);
+
+	// [2] Read PersistentLevel
 	printf("\n[2] Testing PersistentLevel...\n");
 	printf("  Offset: 0x%llX\n", PersistentLevel);
-	printf("  Reading from: 0x%llX\n", GWorld + PersistentLevel);
 	PersistentLevel = TargetProcess.Read<uint64_t>(GWorld + PersistentLevel);
-	printf("  PersistentLevel value: 0x%llX %s\n", PersistentLevel, PersistentLevel ? "[OK]" : "[FAIL - NULL!]");
+	printf("  PersistentLevel value: 0x%llX %s\n", PersistentLevel,
+		isHeapPtr(PersistentLevel) ? "[OK]" : "[FAIL - invalid pointer!]");
+	if (!isHeapPtr(PersistentLevel)) {
+		printf("  [FAIL] PersistentLevel chain broken. Aborting init.\n");
+		printf("=== INITIALIZATION FAILED - WILL RETRY ===\n\n");
+		return;
+	}
 
-	// Test OwningGameInstance
+	// [3] Read OwningGameInstance
 	printf("\n[3] Testing OwningGameInstance...\n");
 	printf("  Offset: 0x%llX\n", OwningGameInstance);
-	printf("  Reading from: 0x%llX\n", GWorld + OwningGameInstance);
 	OwningGameInstance = TargetProcess.Read<uint64_t>(GWorld + OwningGameInstance);
-	printf("  OwningGameInstance value: 0x%llX %s\n", OwningGameInstance, OwningGameInstance ? "[OK]" : "[FAIL - NULL!]");
+	printf("  OwningGameInstance value: 0x%llX %s\n", OwningGameInstance,
+		isHeapPtr(OwningGameInstance) ? "[OK]" : "[FAIL - invalid pointer!]");
+	if (!isHeapPtr(OwningGameInstance)) {
+		printf("  [FAIL] OwningGameInstance chain broken. Aborting init.\n");
+		printf("=== INITIALIZATION FAILED - WILL RETRY ===\n\n");
+		return;
+	}
 
-	// Test LocalPlayers
+	// [4] Read LocalPlayers
 	printf("\n[4] Testing LocalPlayers (TArray)...\n");
 	printf("  Offset: 0x%llX\n", LocalPlayers);
-	printf("  Reading from: 0x%llX\n", OwningGameInstance + LocalPlayers);
 	LocalPlayers = TargetProcess.Read<uint64_t>(OwningGameInstance + LocalPlayers);
-	printf("  LocalPlayers[0] ptr: 0x%llX %s\n", LocalPlayers, LocalPlayers ? "[OK]" : "[FAIL - NULL!]");
+	printf("  LocalPlayers TArray data ptr: 0x%llX %s\n", LocalPlayers,
+		isHeapPtr(LocalPlayers) ? "[OK]" : "[FAIL - invalid!]");
+	if (!isHeapPtr(LocalPlayers)) {
+		printf("  [FAIL] LocalPlayers chain broken. Aborting init.\n");
+		printf("=== INITIALIZATION FAILED - WILL RETRY ===\n\n");
+		return;
+	}
 
-	// Dereference to get first player
-	printf("  Dereferencing to get ULocalPlayer...\n");
-	LocalPlayers = TargetProcess.Read<uint64_t>(LocalPlayers);
-	printf("  ULocalPlayer: 0x%llX %s\n", LocalPlayers, LocalPlayers ? "[OK]" : "[FAIL - NULL!]");
+	// Dereference TArray[0] to get first ULocalPlayer
+	uint64_t localplayer = TargetProcess.Read<uint64_t>(LocalPlayers);
+	printf("  ULocalPlayer (deref): 0x%llX %s\n", localplayer,
+		isHeapPtr(localplayer) ? "[OK]" : "[FAIL - NULL!]");
+	if (!isHeapPtr(localplayer)) {
+		printf("  [FAIL] ULocalPlayer chain broken. Player may not be spawned yet.\n");
+		printf("=== INITIALIZATION FAILED - WILL RETRY ===\n\n");
+		return;
+	}
+	LocalPlayers = localplayer;
 
-	// Test PlayerController
+	// [5] Read PlayerController
 	printf("\n[5] Testing PlayerController...\n");
 	printf("  Offset: 0x%llX\n", PlayerController);
-	printf("  Reading from: 0x%llX\n", LocalPlayers + PlayerController);
 	PlayerController = TargetProcess.Read<uint64_t>(LocalPlayers + PlayerController);
-	printf("  PlayerController: 0x%llX %s\n", PlayerController, PlayerController ? "[OK]" : "[FAIL - NULL!]");
+	printf("  PlayerController: 0x%llX %s\n", PlayerController,
+		isHeapPtr(PlayerController) ? "[OK]" : "[FAIL - invalid!]");
+	if (!isHeapPtr(PlayerController)) {
+		printf("  [FAIL] PlayerController chain broken. Aborting init.\n");
+		printf("=== INITIALIZATION FAILED - WILL RETRY ===\n\n");
+		return;
+	}
 
-	// Test AcknowledgedPawn
+	// [6] Read AcknowledgedPawn
 	printf("\n[6] Testing AcknowledgedPawn...\n");
 	printf("  Offset: 0x%llX\n", AcknowledgedPawn);
-	printf("  Reading from: 0x%llX\n", PlayerController + AcknowledgedPawn);
 	AcknowledgedPawn = TargetProcess.Read<uint64_t>(PlayerController + AcknowledgedPawn);
-	printf("  AcknowledgedPawn: 0x%llX %s\n", AcknowledgedPawn, AcknowledgedPawn ? "[OK]" : "[FAIL - NULL!]");
+	printf("  AcknowledgedPawn: 0x%llX %s\n", AcknowledgedPawn,
+		isHeapPtr(AcknowledgedPawn) ? "[OK]" : "[FAIL - invalid!]");
+	if (!isHeapPtr(AcknowledgedPawn)) {
+		printf("  [FAIL] AcknowledgedPawn chain broken. Player may not have spawned.\n");
+		printf("=== INITIALIZATION FAILED - WILL RETRY ===\n\n");
+		return;
+	}
 
-	// Test PlayerState
+	// [7] Read PlayerState
 	printf("\n[7] Testing PlayerState...\n");
 	printf("  Offset: 0x%llX\n", PlayerState);
-	printf("  Reading from: 0x%llX\n", AcknowledgedPawn + PlayerState);
 	PlayerState = TargetProcess.Read<uint64_t>(AcknowledgedPawn + PlayerState);
-	printf("  PlayerState: 0x%llX %s\n", PlayerState, PlayerState ? "[OK]" : "[FAIL - NULL!]");
+	printf("  PlayerState: 0x%llX %s\n", PlayerState,
+		isHeapPtr(PlayerState) ? "[OK]" : "[FAIL - invalid!]");
+	if (!isHeapPtr(PlayerState)) {
+		printf("  [FAIL] PlayerState chain broken. Aborting init.\n");
+		printf("=== INITIALIZATION FAILED - WILL RETRY ===\n\n");
+		return;
+	}
 
-	// Test CameraManager
+	// [8] Read CameraManager
 	printf("\n[8] Testing CameraManager...\n");
 	printf("  Offset: 0x%llX\n", CameraManager);
-	printf("  Reading from: 0x%llX\n", PlayerController + CameraManager);
 	CameraManager = TargetProcess.Read<uint64_t>(PlayerController + CameraManager);
-	printf("  CameraManager: 0x%llX %s\n", CameraManager, CameraManager ? "[OK]" : "[FAIL - NULL!]");
-
-	// If CameraManager is NULL, scan nearby offsets to find it
-	if (!CameraManager) {
-		printf("\n  [!] CameraManager NULL at 0x328 - scanning PlayerController memory...\n");
-		printf("  PlayerController base: 0x%llX\n", PlayerController);
-
-		// Dump raw memory from 0x300 to 0x400 to find the CameraManager pointer
-		printf("\n  === MEMORY DUMP: PlayerController + 0x300 to 0x400 ===\n");
-		for (uint64_t scan_offset = 0x300; scan_offset <= 0x400; scan_offset += 0x8) {
-			uint64_t val = TargetProcess.Read<uint64_t>(PlayerController + scan_offset);
-			if (val != 0) {
-				printf("  +0x%03llX: 0x%llX", scan_offset, val);
-
-				// Check if this looks like a valid UObject pointer (heap address range)
-				// Valid pointers are typically > 0x10000 and < 0x7FFFFFFFFFFF
-				if (val > 0x10000 && val < 0x7FFFFFFFFFFF) {
-					// Try reading its class pointer (UObject::ClassPrivate at +0x10)
-					uint64_t maybe_class = TargetProcess.Read<uint64_t>(val + 0x10);
-					if (maybe_class > 0x10000 && maybe_class < 0x7FFFFFFFFFFF) {
-						// Try to read CameraCacheEntry from this potential CameraManager
-						CameraCacheEntry test_entry = TargetProcess.Read<CameraCacheEntry>(val + CameraCachePrivateOffset);
-						if (test_entry.POV.FOV > 1.0f && test_entry.POV.FOV < 180.0f) {
-							printf(" <-- LIKELY CAMERA MANAGER! FOV=%.2f, Loc=(%.1f,%.1f,%.1f)",
-								test_entry.POV.FOV,
-								test_entry.POV.Location.X, test_entry.POV.Location.Y, test_entry.POV.Location.Z);
-							CameraManager = val;
-						} else {
-							printf(" [UObject, class=0x%llX]", maybe_class);
-						}
-					}
+	printf("  CameraManager: 0x%llX %s\n", CameraManager,
+		isHeapPtr(CameraManager) ? "[OK]" : "[FAIL - invalid!]");
+	if (!isHeapPtr(CameraManager)) {
+		printf("  [WARN] CameraManager not found at offset 0x380. Scanning...\n");
+		// Quick scan for CameraManager by looking for valid FOV
+		for (uint64_t scan = 0x300; scan <= 0x500; scan += 0x8) {
+			uint64_t val = TargetProcess.Read<uint64_t>(PlayerController + scan);
+			if (isHeapPtr(val)) {
+				CameraCacheEntry test_entry = TargetProcess.Read<CameraCacheEntry>(val + CameraCachePrivateOffset);
+				if (test_entry.POV.FOV > 1.0f && test_entry.POV.FOV < 180.0f) {
+					printf("  [+] Found CameraManager at +0x%llX = 0x%llX (FOV=%.2f)\n",
+						scan, val, test_entry.POV.FOV);
+					CameraManager = val;
+					break;
 				}
-				printf("\n");
 			}
 		}
-
-		if (CameraManager) {
-			printf("\n  [+] Found CameraManager at offset +0x???  -> 0x%llX\n", CameraManager);
-		} else {
-			printf("\n  [!] Could not find CameraManager in range 0x300-0x400\n");
-			printf("  Expanding search to 0x200-0x600...\n");
-			for (uint64_t scan_offset = 0x200; scan_offset <= 0x600; scan_offset += 0x8) {
-				uint64_t val = TargetProcess.Read<uint64_t>(PlayerController + scan_offset);
-				if (val > 0x10000 && val < 0x7FFFFFFFFFFF) {
-					uint64_t maybe_class = TargetProcess.Read<uint64_t>(val + 0x10);
-					if (maybe_class > 0x10000 && maybe_class < 0x7FFFFFFFFFFF) {
-						CameraCacheEntry test_entry = TargetProcess.Read<CameraCacheEntry>(val + CameraCachePrivateOffset);
-						if (test_entry.POV.FOV > 1.0f && test_entry.POV.FOV < 180.0f) {
-							printf("  +0x%03llX: 0x%llX <-- CAMERA MANAGER FOUND! FOV=%.2f\n",
-								scan_offset, val, test_entry.POV.FOV);
-							CameraManager = val;
-							break;
-						}
-					}
-				}
-			}
+		if (!isHeapPtr(CameraManager)) {
+			printf("  [FAIL] Could not find CameraManager. Aborting init.\n");
+			printf("=== INITIALIZATION FAILED - WILL RETRY ===\n\n");
+			return;
 		}
 	}
 
-	// Test CameraCacheEntry
+	// [9] Test CameraCacheEntry
 	printf("\n[9] Testing CameraCacheEntry...\n");
-	printf("  Offset: 0x%llX\n", CameraCachePrivateOffset);
-	printf("  Reading from: 0x%llX\n", CameraManager + CameraCachePrivateOffset);
 	CameraEntry = TargetProcess.Read<CameraCacheEntry>(CameraManager + CameraCachePrivateOffset);
-	printf("  CameraCacheEntry FOV: %.2f %s\n", CameraEntry.POV.FOV,
+	printf("  FOV: %.2f %s\n", CameraEntry.POV.FOV,
 		(CameraEntry.POV.FOV > 0 && CameraEntry.POV.FOV < 180) ? "[OK]" : "[WARN - unusual FOV!]");
-	printf("  Camera Location: (%.2f, %.2f, %.2f)\n",
+	printf("  Location: (%.2f, %.2f, %.2f)\n",
 		CameraEntry.POV.Location.X, CameraEntry.POV.Location.Y, CameraEntry.POV.Location.Z);
-	printf("  Camera Rotation: (%.2f, %.2f, %.2f)\n",
+	printf("  Rotation: (%.2f, %.2f, %.2f)\n",
 		CameraEntry.POV.Rotation.Pitch, CameraEntry.POV.Rotation.Yaw, CameraEntry.POV.Rotation.Roll);
 
-	// Test GObjects (FUObjectArray)
-	printf("\n[10] Testing GObjects (FUObjectArray)...\n");
-	printf("  GObjects offset: 0x%llX\n", GObjects);
-	uintptr_t gobjects_addr = TargetProcess.GetBaseAddress(ProcessName) + GObjects;
-	printf("  GObjects address: 0x%llX\n", gobjects_addr);
-
-	// FUObjectArray structure (UE5):
-	// +0x00: TArray ObjObjects (pointer to object array)
-	// +0x08: int32 MaxElements
-	// +0x0C: int32 NumElements
-	uintptr_t objects_array = TargetProcess.Read<uintptr_t>(gobjects_addr);
-	int32_t max_elements = TargetProcess.Read<int32_t>(gobjects_addr + 0x8);
-	int32_t num_elements = TargetProcess.Read<int32_t>(gobjects_addr + 0xC);
-
-	printf("  Objects array ptr: 0x%llX %s\n", objects_array, objects_array ? "[OK]" : "[FAIL - NULL!]");
-	printf("  MaxElements: %d\n", max_elements);
-	printf("  NumElements: %d %s\n", num_elements,
-		(num_elements > 0 && num_elements < 500000) ? "[OK]" : "[WARN - unusual count!]");
-
-	// Test reading first few object entries
-	if (objects_array && num_elements > 0 && num_elements < 500000) {
-		printf("  Testing first 5 objects:\n");
-		for (int i = 0; i < 5 && i < num_elements; i++) {
-			// Each FUObjectItem is typically 24 bytes (0x18)
-			// +0x00: UObject* Object
-			// +0x08: int32 Flags
-			// +0x0C: int32 ClusterRootIndex
-			// +0x10: int32 SerialNumber
-			uintptr_t item_addr = objects_array + (i * 0x18);
-			uintptr_t object_ptr = TargetProcess.Read<uintptr_t>(item_addr);
-			int32_t flags = TargetProcess.Read<int32_t>(item_addr + 0x8);
-
-			printf("    [%d] Object: 0x%llX, Flags: 0x%X\n", i, object_ptr, flags);
-
-			// If object is valid, try to read its Class pointer
-			if (object_ptr) {
-				// UObject::Class is typically at +0x10 in UE5
-				uintptr_t class_ptr = TargetProcess.Read<uintptr_t>(object_ptr + 0x10);
-				printf("         Class: 0x%llX\n", class_ptr);
-			}
-		}
-	}
-
-	printf("\n[11] GName Status (FNamePool)...\n");
-	printf("  GName offset: 0x%llX\n", GName);
-	uintptr_t gname_addr = TargetProcess.GetBaseAddress(ProcessName) + GName;
-	uintptr_t gname_value = TargetProcess.Read<uintptr_t>(gname_addr);
-	printf("  GName value: 0x%llX %s\n", gname_value,
-		gname_value ? "[Available]" : "[NULL - Will use class pointer matching instead]");
-
-	printf("\n=== INITIALIZATION COMPLETE ===\n\n");
+	printf("\n=== INITIALIZATION COMPLETE - ALL POINTERS VALID ===\n\n");
 }
 
 std::string Engine::ResolveGName(const uint32_t& id)
